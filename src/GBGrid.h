@@ -607,6 +607,7 @@ struct GBGridMap
 					grids[index] = GBGrid(gridOriginFromIndices(index3D.x, index3D.y, index3D.z), cellSize, cellsX, cellsY, cellsZ, index);
 					occupiedGridIndices.push_back(index);
 				}
+				outGrids.push_back(&grids[index]);
 			}
 		}
 		else

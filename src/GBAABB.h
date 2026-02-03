@@ -113,26 +113,29 @@ struct GBEdge {
 		GBEdge& outEdge,
 		bool ensureCrossing = false)
 	{
+		// Direction vectors (NOT normalized)
 		GBVector3 d1 = e1.b - e1.a;
-		float len1 = d1.length();
-		d1 /= len1;
-
 		GBVector3 d2 = e2.b - e2.a;
-		float len2 = d2.length();
-		d2 /= len2;
+
+		float len1Sq = d1.lengthSquared();
+		float len2Sq = d2.lengthSquared();
+		if (len1Sq < 1e-6f || len2Sq < 1e-6f)
+			return false; // degenerate edges
 
 		GBVector3 cross = GBCross(d1, d2);
 		float denom = cross.lengthSquared();
 		if (denom < 1e-6f)
 			return false; // parallel or nearly parallel
 
+		// Solve closest points on the infinite lines
 		float s = GBDot(GBCross(e2.a - e1.a, d2), cross) / denom;
 		float t = GBDot(GBCross(e1.a - e2.a, d1), -cross) / denom;
 
 		if (ensureCrossing)
 		{
-			if (s < 0.f || s > len1 ||
-				t < 0.f || t > len2)
+			// s,t are now in [0,1] segment space
+			if (s < 0.f || s > 1.f ||
+				t < 0.f || t > 1.f)
 				return false;
 		}
 
@@ -502,5 +505,15 @@ struct GBAABB
 		outVerts[5] = min + extents.xzComponent();
 		outVerts[6] = min + extents.yzComponent();
 		outVerts[7] = min + extents;
+	}
+
+	bool isPointContainedWithError(const GBVector3& p, float epsilon = 1e-6f) const
+	{
+		GBVector3 l = low() - GBVector3(epsilon, epsilon, epsilon);
+		GBVector3 h = high() + GBVector3(epsilon, epsilon, epsilon);
+
+		return (p.x >= l.x && p.x <= h.x &&
+			p.y >= l.y && p.y <= h.y &&
+			p.z >= l.z && p.z <= h.z);
 	}
 };
