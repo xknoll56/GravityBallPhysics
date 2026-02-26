@@ -12,7 +12,9 @@ struct GBSimulation
 	std::vector<GBCollider*> colliders;
 	std::vector<std::unique_ptr<GBSphereCollider>> sphereColliders;
 	std::vector<std::unique_ptr<GBBoxCollider>> boxColliders;
+	std::vector<std::unique_ptr<GBCapsuleCollider>> capsuleColliders;
 	std::vector<std::unique_ptr<GBBody>> rigidBodies;
+	std::vector<std::unique_ptr<GBCloth>> cloths;
 	std::vector< std::unique_ptr<GBQuad>> quads;
 	std::vector< std::unique_ptr<GBTriangle>> triangles;
 	GBBoxCollider* pStaticBox;
@@ -97,6 +99,11 @@ struct GBSimulation
 		return (index < boxColliders.size()) ? boxColliders[index].get() : nullptr;
 	}
 
+	GBCapsuleCollider* getCapsuleCollider(int index)
+	{
+		return (index < capsuleColliders.size()) ? capsuleColliders[index].get() : nullptr;
+	}
+
 	GBBody* getBody(int index)
 	{
 		return (index < rigidBodies.size()) ? rigidBodies[index].get() : nullptr;
@@ -173,12 +180,66 @@ struct GBSimulation
 		return col;
 	}
 
+	GBCloth* createCloth(int width = 10, int height = 10, float spacing = 0.25f, float stiffness = 1000.0f, float radius = 0.1f)
+	{
+		cloths.push_back(std::make_unique<GBCloth>());
+		GBCloth* cloth = cloths.back().get();
+		cloth->height = height;
+		cloth->width = width;
+		cloth->spacing = spacing;
+		cloth->particleRadius = radius;
+		for (int i = 0; i < height; i++)
+		{
+			for (int j = 0; j < width; j++)
+			{
+				cloth->particles.push_back(GBParticle(GBVector3(0, j * spacing, i * spacing)));
+			}
+		}
+
+		for (int i = 0; i < height-1; i++)
+		{
+			for (int j = 0; j < width; j++)
+			{
+				cloth->springs.push_back(GBSpring(cloth->index(j, i), cloth->index(j, i + 1), spacing, stiffness));
+			}
+		}
+
+		for (int i = 0; i < width - 1; i++)
+		{
+			for (int j = 0; j < height; j++)
+			{
+				cloth->springs.push_back(GBSpring(cloth->index(i, j), cloth->index(i+1, j), spacing, stiffness));
+			}
+		}
+
+		return cloth;
+	}
+
 	GBBoxCollider* attachBoxCollider(GBBody* pBody, GBVector3 halfExtents, GBTransform localTransform = GBTransform(), bool insertToGrid = true)
 	{
 		boxColliders.push_back(std::make_unique<GBBoxCollider>());
 		GBBoxCollider* col = boxColliders.back().get();
 		col->localTransform = localTransform;
 		col->halfExtents = halfExtents;
+		col->id = getId();
+		col->pBody = pBody;
+		colliders.push_back(col);
+		pBody->colliders.push_back(col);
+		pBody->updateColliders();
+		if(insertToGrid)
+			gridMap.insertBody(*pBody);
+		return col;
+	}
+
+	GBCapsuleCollider* attachCapsuleCollider(GBBody* pBody, float radius, float height, GBTransform localTransform = GBTransform(), bool insertToGrid = true)
+	{
+		// For simplicity, we can treat the capsule as a box for now
+		//boxColliders.push_back(std::make_unique<GBBoxCollider>());
+		capsuleColliders.push_back(std::make_unique<GBCapsuleCollider>());
+		GBCapsuleCollider* col = capsuleColliders.back().get();
+		col->localTransform = localTransform;
+		col->radius = radius;
+		col->height = height;
 		col->id = getId();
 		col->pBody = pBody;
 		colliders.push_back(col);
@@ -233,6 +294,8 @@ struct GBSimulation
 
 	void solveStaticManifold(const GBManifold& manifold, GBBody& body, float dt, bool otherIsDynamic = false)
 	{
+		if (body.isKinematic)
+			return;
 
 		const float restitution = 0.25f;
 		const static float normalRestingThreshold = 4.0f;
@@ -284,7 +347,7 @@ struct GBSimulation
 					//if (!otherIsDynamic && body.constraintType == GBBody::ConstraintType::NONE &&
 					if (body.constraintType == GBBody::ConstraintType::NONE)
 					{
-						GBBody* pOther = manifold.pReference && manifold.pReference->pBody ? manifold.pReference->pBody : nullptr;
+						GBBody* pOther = manifold.pReference && manifold.pReference ? manifold.pReference : nullptr;
 						if (manifold.numContacts > 0)
 							body.setConstraintEdge(manifold.contacts[0].position, manifold.numContacts > 1?manifold.contacts[1].position :
 								manifold.contacts[0].position, pOther);
@@ -296,10 +359,10 @@ struct GBSimulation
 			}
 			else
 			{
-				if(manifold.pReference && manifold.pReference->pBody)
-					manifold.pReference->pBody->wake();
-				if(manifold.pIncident && manifold.pIncident->pBody)
-					manifold.pIncident->pBody->wake();
+				if(manifold.pReference && manifold.pReference)
+					manifold.pReference->wake();
+				if(manifold.pIncident && manifold.pIncident)
+					manifold.pIncident->wake();
 			}
 
 
@@ -338,6 +401,9 @@ struct GBSimulation
 
 	void solveDynamicManifold(const GBManifold& m, GBBody& A, GBBody& B, float dt, bool canTreatAsStatic = true)
 	{
+		//if (A.isKinematic || B.isKinematic)
+		//	return;
+
 		const float restitution = 0.1f;
 		const float percent = 0.3f;
 		const float forceCap = 100.0f;
@@ -353,41 +419,27 @@ struct GBSimulation
 		if (canTreatAsStatic)
 		{
 			float upness = GBDot(GBVector3::up(), m.normal);
-			if (m.pIncident && m.pIncident->type == ColliderType::Sphere && GBAbs(vRelN) < staticManifoldThreshold)
+			if (m.pIncident && m.pIncident->colliders[0]->type == ColliderType::Sphere && GBAbs(vRelN) < staticManifoldThreshold)
 			{
-				if(!m.pReference->pBody->isOnLayer(LAYER_STATIC_DYNAMIC_SPHERE) || upness>0.95)
-					solveStaticSphereManifold(m, *m.pIncident->pBody, dt);
-				//return;
+				//if(!m.pReference->isOnLayer(LAYER_STATIC_DYNAMIC_SPHERE) || upness>0.95)
+					solveStaticSphereManifold(m, *m.pIncident, dt);
+				return;
 			}
 			else if (GBAbs(vRelN) < staticManifoldThreshold &&m.numContacts > 1 && GBDot(GBVector3::up(), m.normal) > slopeRequirement )
 			{
 				if(upness>0.95)
-					solveStaticManifold(m, *m.pIncident->pBody, dt, true);
-				else if(m.pIncident->pBody->awakeTimer >0.5)
-					solveStaticManifold(m, *m.pIncident->pBody, dt, true);
+					solveStaticManifold(m, *m.pIncident, dt, true);
+				else if(m.pIncident->awakeTimer >0.5)
+					solveStaticManifold(m, *m.pIncident, dt, true);
 				//return;
 			}
 		}
 
-		bool ignoreA = !A.isDynamic();
-		bool ignoreB = !B.isDynamic();
+		bool ignoreA = !A.isDynamic() || A.isKinematic;
+		bool ignoreB = !B.isDynamic() || B.isKinematic;
 		float aModifier = 1.0f;
 		float bModifier = 1.0f;
 
-		if (m.pIncident && m.pIncident->type == ColliderType::Sphere)
-		{
-			if (m.pReference)
-			{
-				m.pReference->pBody->wakeIsland();
-				if (!m.pReference->pBody->isOnLayer(LAYER_STATIC_DYNAMIC_SPHERE))
-				{
-					bModifier = 0.1f;
-
-					if (GBDot(A.velocity, B.velocity) < 0.0f)
-						return;
-				}
-			}
-		}
 
 
 		for (int i = 0; i < count; i++)
@@ -472,6 +524,9 @@ struct GBSimulation
 
 	void solveStaticSphereManifold(const GBManifold& manifold, GBBody& body, float dt)
 	{
+		if (body.isKinematic)
+			return;
+
 		const float restitution = 0.25f;
 		const static float restingThreshold = 1.0f;
 		const float rollingThreshold = 1.0f; // threshold for rolling without slip
@@ -536,6 +591,78 @@ struct GBSimulation
 		}
 	}
 
+	void solveStaticCapsuleManifold(
+		const GBManifold& manifold,
+		GBBody& body)
+	{
+		if (manifold.numContacts == 0 || body.isKinematic)
+			return;
+
+		const float restitution = 0.25f;
+
+		// --- Pick deepest contact only ---
+		const GBContact& c = manifold.contacts[0];
+
+		GBVector3 n = c.normal;
+		GBVector3 r = c.position - body.transform.position;
+
+		// Proper relative velocity (important!)
+		GBVector3 vRel = body.velocity + GBCross(body.angularVelocity, r);
+
+		float vn = GBDot(vRel, n);
+		if (vn >= 0.0f)
+			return;
+
+		// --- Effective mass ---
+		GBVector3 rn = GBCross(r, n);
+		float invMassEff =
+			body.invMass +
+			GBDot(rn, body.invInertia * rn);
+
+		if (invMassEff < 1e-8f)
+			return;
+
+		// --- Normal impulse ---
+		float jn = -(1.0f + restitution) * vn;
+		jn /= invMassEff;
+
+		if (jn < 0.0f)
+			jn = 0.0f;
+
+		GBVector3 impulse = n * jn;
+
+		body.velocity += impulse * body.invMass;
+		body.angularVelocity += body.invInertia * GBCross(r, impulse);
+
+		// -------- Friction (sphere-like) --------
+		vRel = body.velocity + GBCross(body.angularVelocity, r);
+
+		GBVector3 t = vRel - n * GBDot(vRel, n);
+		float tLen = t.length();
+
+		if (tLen > 1e-6f)
+		{
+			t /= tLen;
+
+			GBVector3 rt = GBCross(r, t);
+
+			float invMassT =
+				body.invMass +
+				GBDot(rt, body.invInertia * rt);
+
+			float vt = GBDot(vRel, t);
+			float jt = -vt / invMassT;
+
+			float maxFriction = body.dynamicFriction * jn;
+			jt = GBClamp(jt, -maxFriction, maxFriction);
+
+			GBVector3 frictionImpulse = t * jt;
+
+			body.velocity += frictionImpulse * body.invMass;
+			body.angularVelocity += body.invInertia * GBCross(r, frictionImpulse);
+		}
+	}
+
 	bool overlapTest(GBCollider* colA, GBCollider* colB, GBSATCollisionData& outData, GBManifold& outManifold)
 	{
 		GBContact c;
@@ -551,6 +678,9 @@ struct GBSimulation
 			case ColliderType::Sphere:
 				retValue = GBManifoldGeneration::GBManifoldSphereBox(*(GBSphereCollider*)colB, *(GBBoxCollider*)colA, outManifold);
 				break;
+			case ColliderType::Capsule:
+				retValue = GBManifoldGeneration::GBManifoldCapsuleBox(*(GBCapsuleCollider*)colB, *(GBBoxCollider*)colA, outManifold);
+				break;
 			}
 			break;
 
@@ -562,6 +692,27 @@ struct GBSimulation
 				break;
 			case ColliderType::Sphere:
 				retValue = GBManifoldGeneration::GBContactSphereSphere(*(GBSphereCollider*)colA, *(GBSphereCollider*)colB, c);
+				break;
+			case ColliderType::Capsule:
+				retValue = GBManifoldGeneration::GBManifoldCapsuleSphere(*(GBCapsuleCollider*)colB, *(GBSphereCollider*)colA, outManifold);
+				break;
+			}
+			break;
+
+		case ColliderType::Capsule:
+			switch (colB->type)
+			{
+			case ColliderType::Box:
+				retValue = GBManifoldGeneration::GBManifoldCapsuleBox(*(GBCapsuleCollider*)colA, *(GBBoxCollider*)colB, outManifold);
+				break;
+			case ColliderType::Sphere:
+				retValue = GBManifoldGeneration::GBManifoldCapsuleSphere(*(GBCapsuleCollider*)colA, *(GBSphereCollider*)colB, outManifold);
+				break;
+			case ColliderType::Capsule:
+				if(colB->pBody->isKinematic)
+					retValue = GBManifoldGeneration::GBManifoldCapsuleCapsule(*(GBCapsuleCollider*)colA, *(GBCapsuleCollider*)colB, outManifold);
+				else
+					retValue = GBManifoldGeneration::GBManifoldCapsuleCapsule(*(GBCapsuleCollider*)colB, *(GBCapsuleCollider*)colA, outManifold);
 				break;
 			}
 			break;
@@ -580,6 +731,7 @@ struct GBSimulation
 			case ColliderType::Box:   return GBManifoldGeneration::GBManifoldBoxBox(*(GBBoxCollider*)colA,
 				*(GBBoxCollider*)colB, data, outManifold);
 			case ColliderType::Sphere:return false;
+			case ColliderType::Capsule: return false;
 			}
 			break;
 
@@ -588,6 +740,16 @@ struct GBSimulation
 			{
 			case ColliderType::Box:   return false;
 			case ColliderType::Sphere:return false;
+			case ColliderType::Capsule: return false;
+			}
+			break;
+
+		case ColliderType::Capsule:
+			switch (colB->type)
+			{
+			case ColliderType::Box:   return false;
+			case ColliderType::Sphere:return false;
+			case ColliderType::Capsule: return false;
 			}
 			break;
 		}
@@ -600,7 +762,10 @@ struct GBSimulation
 		SPHERE_SPHERE = 0,
 		BOX_SPHERE = 1,
 		BOX_BOX = 2,
-		COMPOUND = 3
+		COMPOUND = 3,
+		CAPSULE_CAPSULE = 4,
+		CAPSULE_BOX = 5,
+		CAPSULE_SPHERE = 6
 	};
 
 	bool generateBodyManifold(GBBody* a, GBBody* b, GBSATCollisionData& data, GBManifold& outManifold, SolverType& outType)
@@ -611,6 +776,9 @@ struct GBSimulation
 		GBBoxCollider* pBoxA = nullptr;
 		GBBoxCollider* pBoxB = nullptr;
 		GBBoxCollider* pBox = nullptr;
+		GBCapsuleCollider* pCapA = nullptr;
+		GBCapsuleCollider* pCapB = nullptr;
+		GBCapsuleCollider* pCap = nullptr;
 		if (a->colliders.size() == 1 && b->colliders.size() == 1)
 		{
 			if (a->colliders[0]->type == ColliderType::Sphere && b->colliders[0]->type == ColliderType::Sphere)
@@ -625,19 +793,57 @@ struct GBSimulation
 				pBoxB = (GBBoxCollider*)b->colliders[0];
 				outType = BOX_BOX;
 			}
+			else if (a->colliders[0]->type == ColliderType::Capsule && b->colliders[0]->type == ColliderType::Capsule)
+			{
+				pCapA = (GBCapsuleCollider*)a->colliders[0];
+				pCapB = (GBCapsuleCollider*)b->colliders[0];
+				outType = CAPSULE_CAPSULE;
+			}
 			else
 			{
-				if (a->colliders[0]->type == ColliderType::Box)
+				if (a->colliders[0]->type == ColliderType::Capsule || b->colliders[0]->type == ColliderType::Capsule)
+				{
+					if (a->colliders[0]->type == ColliderType::Capsule)
+					{
+						pCap = (GBCapsuleCollider*)a->colliders[0];
+						if (b->colliders[0]->type == ColliderType::Box)
+						{
+							pBox = (GBBoxCollider*)b->colliders[0];
+							outType = CAPSULE_BOX;
+						}
+						else
+						{
+							pSphere = (GBSphereCollider*)b->colliders[0];
+							outType = CAPSULE_SPHERE;
+						}
+					}
+					else if (b->colliders[0]->type == ColliderType::Capsule)
+					{
+						pCap = (GBCapsuleCollider*)b->colliders[0];
+						if (a->colliders[0]->type == ColliderType::Box)
+						{
+							pBox = (GBBoxCollider*)a->colliders[0];
+							outType = CAPSULE_BOX;
+						}
+						else
+						{
+							pSphere = (GBSphereCollider*)a->colliders[0];
+							outType = CAPSULE_SPHERE;
+						}
+					}
+				}
+				else if (a->colliders[0]->type == ColliderType::Box)
 				{
 					pBox = (GBBoxCollider*)a->colliders[0];
 					pSphere = (GBSphereCollider*)b->colliders[0];
+					outType = BOX_SPHERE;
 				}
 				else
 				{
 					pBox = (GBBoxCollider*)b->colliders[0];
 					pSphere = (GBSphereCollider*)a->colliders[0];
-				}
-				outType = BOX_SPHERE;
+					outType = BOX_SPHERE;
+				}		
 			}
 		}
 		else
@@ -665,6 +871,28 @@ struct GBSimulation
 				{
 					doesIntersect = GBManifoldGeneration::GBManifoldBoxBox(*pBoxA, *pBoxB, data, outManifold);
 				}
+			}
+			break;
+		case CAPSULE_CAPSULE:
+			if (pCapA && pCapB)
+			{
+				// We want kinematic/dynamic bodies to be incident....
+				if(pCapB->pBody->isDynamic() || pCapB->pBody->isKinematic)
+					doesIntersect = GBManifoldGeneration::GBManifoldCapsuleCapsule(*pCapA, *pCapB, outManifold);
+				else
+					doesIntersect = GBManifoldGeneration::GBManifoldCapsuleCapsule(*pCapB, *pCapA, outManifold);
+			}
+			break;
+		case CAPSULE_BOX:
+			if (pCap && pBox)
+			{
+				doesIntersect = GBManifoldGeneration::GBManifoldCapsuleBox(*pCap, *pBox, outManifold);
+			}
+			break;
+		case CAPSULE_SPHERE:
+			if (pCap && pSphere)
+			{
+				doesIntersect = GBManifoldGeneration::GBManifoldCapsuleSphere(*pCap, *pSphere, outManifold);
 			}
 			break;
 		case COMPOUND:
@@ -807,6 +1035,7 @@ struct GBSimulation
 
 		GBBoxCollider* pBox = nullptr;
 		GBSphereCollider* pSphere = nullptr;
+		GBCapsuleCollider* pCapsule = nullptr;
 
 		for (int i = 0; i < occupiedCells.size(); i++)
 		{
@@ -832,12 +1061,12 @@ struct GBSimulation
 						if (GBManifoldGeneration::GBContactSphereAABB(*pSphere, pStaticBox->aabb, contact))
 						{
 							manifold.addContact(contact, false);
-							manifold.pIncident = (GBCollider*)pSphere;
+							manifold.pIncident = pSphere->pBody;
 							manifold.normal = contact.normal;
 							manifold.separation = contact.penetrationDepth;
 							manifold.clampSeparation(slop);
 							pSphere->pBody->frameManifold.combine(manifold);
-							solveDynamicPenetration(manifold, *manifold.pIncident->pBody, false);
+							solveDynamicPenetration(manifold, *manifold.pIncident, false);
 							solveStaticSphereManifold(manifold, *pSphere->pBody, deltaTime);
 						}
 					}
@@ -852,10 +1081,22 @@ struct GBSimulation
 							{
 								frameStaticManifolds.push_back(manifold);
 								pBox->pBody->frameManifold.combine(manifold);
-								solveDynamicPenetration(manifold, *manifold.pIncident->pBody);
-								solveStaticManifold(manifold, *manifold.pIncident->pBody, deltaTime);
+								solveDynamicPenetration(manifold, *manifold.pIncident);
+								solveStaticManifold(manifold, *manifold.pIncident, deltaTime);
 								handleConstraintAction(manifold);
 							}
+						}
+					}
+					break;
+
+				case ColliderType::Capsule:
+					pCapsule = (GBCapsuleCollider*)pCollider;
+					if (pCapsule)
+					{
+						if (GBManifoldGeneration::GBManifoldCapsuleBox(*pCapsule, *pStaticBox, manifold))
+						{
+							solveDynamicPenetration(manifold, *manifold.pIncident, false);
+							solveStaticCapsuleManifold(manifold, *manifold.pIncident);
 						}
 					}
 					break;
@@ -869,6 +1110,7 @@ struct GBSimulation
 
 		pBox = nullptr;
 		pSphere = nullptr;
+		pCapsule = nullptr;
 
 		GBManifold combinedManifold;
 		combinedManifold.separation = 0.0f;
@@ -894,12 +1136,12 @@ struct GBSimulation
 							if (GBManifoldGeneration::GBContactSphereTriangle(*pSphere, *pTriangle, contact))
 							{
 								manifold.addContact(contact, false);
-								manifold.pIncident = (GBCollider*)pSphere;
+								manifold.pIncident = pSphere->pBody;
 								manifold.normal = contact.normal;
 								manifold.separation = contact.penetrationDepth;
 								manifold.clampSeparation(manifold.separation - slop);
 								pSphere->pBody->frameManifold.combine(manifold);
-								solveDynamicPenetration(manifold, *manifold.pIncident->pBody, false);
+								solveDynamicPenetration(manifold, *manifold.pIncident, false);
 								solveStaticSphereManifold(manifold, *pSphere->pBody, deltaTime);
 							}
 						}
@@ -924,6 +1166,18 @@ struct GBSimulation
 							}
 						}
 						break;
+					case ColliderType::Capsule:
+						pCapsule = (GBCapsuleCollider*)pCollider;
+						if (pCapsule)
+						{
+							GBManifold manifold;
+							if (GBManifoldGeneration::GBManifoldCapsuleTriangle(*pCapsule, *pTriangle, manifold))
+							{
+								solveDynamicPenetration(manifold, *manifold.pIncident, false);
+								solveStaticCapsuleManifold(manifold, *manifold.pIncident);
+							}
+						}
+					break;
 					}
 				}
 			}
@@ -935,8 +1189,8 @@ struct GBSimulation
 			{
 				combinedManifold.clampSeparation(slop);
 				pBox->pBody->frameManifold.combine(combinedManifold);
-				solveDynamicPenetration(combinedManifold, *combinedManifold.pIncident->pBody);
-				solveStaticManifold(combinedManifold, *combinedManifold.pIncident->pBody, deltaTime);
+				solveDynamicPenetration(combinedManifold, *combinedManifold.pIncident);
+				solveStaticManifold(combinedManifold, *combinedManifold.pIncident, deltaTime);
 				handleConstraintAction(combinedManifold);
 			}
 		}
@@ -997,7 +1251,8 @@ struct GBSimulation
 					body->angularVelocity = { 0,0,0 };
 				}
 
-				body->addForce(gravity * body->mass); // gravity
+				if(!body->isKinematic)
+					body->addForce(gravity * body->mass); // gravity
 				body->update(interDeltaTime);
 				body->clearContactedBodies();
 			}
@@ -1042,21 +1297,30 @@ struct GBSimulation
 							switch (type)
 							{
 							case SPHERE_SPHERE:
-								solveDynamicPenetrationEqually(manifold);
-								solveDynamicManifold(manifold, *manifold.pReference->pBody, *manifold.pIncident->pBody, interDeltaTime, true);
+								manifold.pIncident->transform.position += manifold.normal * manifold.separation;
+								solveDynamicManifold(manifold, *manifold.pReference, *manifold.pIncident, interDeltaTime, true);
 								break;
 							case BOX_SPHERE:
-								solveDynamicPenetrationEqually(manifold);
-								solveDynamicManifold(manifold, *manifold.pReference->pBody, *manifold.pIncident->pBody, interDeltaTime, true);
+								manifold.pIncident->transform.position += manifold.normal * manifold.separation;
+								solveDynamicManifold(manifold, *manifold.pReference, *manifold.pIncident, interDeltaTime, true);
 								break;
 							case BOX_BOX:
 							{
-								if (!manifold.pReference->pBody->isStatic)
+								if (!manifold.pReference->isStatic)
 									manifold.flipAndSwapIfContactOnTop(manifold.normal);
 								float clampedSep = GBClamp(manifold.separation, manifold.separation, slop);
-								manifold.pIncident->pBody->transform.position += manifold.normal * manifold.separation;
+								manifold.pIncident->transform.position += manifold.normal * manifold.separation;
 								solveDynamicManifold(manifold, *bodyA, *bodyB, interDeltaTime, true);
 							}
+								break;
+							case CAPSULE_BOX:
+								//manifold.pIncident->transform.position += manifold.normal * manifold.separation;
+								solveDynamicPenetrationEqually(manifold);
+								solveDynamicManifold(manifold, *manifold.pReference, *manifold.pIncident, interDeltaTime, true);
+								break;
+							case CAPSULE_SPHERE:
+								solveDynamicPenetrationEqually(manifold);
+								solveDynamicManifold(manifold, *manifold.pReference, *manifold.pIncident, interDeltaTime, true);
 								break;
 							case COMPOUND:
 								solveDynamicPenetrationEqually(manifold);
@@ -1068,9 +1332,9 @@ struct GBSimulation
 
 							if (manifold.pIncident && manifold.pReference)
 							{
-								manifold.pIncident->pBody->frameManifold.combine(manifold);
+								manifold.pIncident->frameManifold.combine(manifold);
 								GBManifold refManifold = GBManifold::asReference(manifold);
-								manifold.pReference->pBody->frameManifold.combine(refManifold);
+								manifold.pReference->frameManifold.combine(refManifold);
 							}
 						}
 
@@ -1086,7 +1350,7 @@ struct GBSimulation
 				GBBody* bodyA = sortedBodies[i];
 				if (bodyA->ignoreSample || bodyA->isSleeping)
 					continue;
-				if (bodyA->isDynamic())
+				if (bodyA->isDynamic() || bodyA->isKinematic)
 					handleStaticGeometry(*bodyA, interDeltaTime);
 
 				std::vector<GBBody*> checkBodies;
@@ -1117,7 +1381,7 @@ struct GBSimulation
 						//if (bodyA->isStatic || bodyB->isStatic)
 						if (!bodyA->isDynamic() || !bodyB->isDynamic())
 						{
-							if (bodyA->isDynamic())
+							if (bodyA->isDynamic() || bodyA->isKinematic)
 							{
 								dynamicBody = bodyA;
 								staticBody = bodyB;
@@ -1141,30 +1405,49 @@ struct GBSimulation
 									// Don't bother, treat as dynamic
 									break;
 								case BOX_SPHERE:
-									solveDynamicPenetration(manifold, *manifold.pIncident->pBody);
-									if (manifold.pReference->pBody->isStatic && manifold.pReference->pBody->isOnLayer(LAYER_STATIC_DYNAMIC_SPHERE))
-										solveStaticSphereManifold(manifold, *manifold.pIncident->pBody, interDeltaTime);
-									else
-										solveDynamicManifold(manifold, *manifold.pReference->pBody, *manifold.pIncident->pBody, interDeltaTime, true);
+									manifold.pIncident->transform.position += manifold.normal * manifold.separation;
+									solveStaticSphereManifold(manifold, *manifold.pIncident, interDeltaTime);
+
 									break;
 								case BOX_BOX:
-									if (!manifold.pReference->pBody->isStatic)
+									if (!manifold.pReference->isStatic)
 										manifold.flipAndSwapIfContactOnTop(manifold.normal);
-									solveDynamicPenetration(manifold, *manifold.pIncident->pBody);
-									solveStaticManifold(manifold, *manifold.pIncident->pBody, interDeltaTime);
-									if (manifold.pIncident->pBody->isDynamic())
+									if (!manifold.pIncident)
+										continue;
+									solveDynamicPenetration(manifold, *manifold.pIncident);
+									solveStaticManifold(manifold, *manifold.pIncident, interDeltaTime);
+									if (manifold.pIncident->isDynamic())
 										handleConstraintAction(manifold);
 									break;
+								case CAPSULE_BOX:
+									solveDynamicPenetration(manifold, *manifold.pIncident);
+									// If the capsule is dynamic use the capsule solver, otherwise use the box solver
+									if(manifold.pIncident->isDynamic())
+										solveStaticCapsuleManifold(manifold, *manifold.pIncident);
+									else
+									{
+										manifold.flipAndSwap();
+										solveStaticManifold(manifold, *manifold.pIncident, interDeltaTime);
+									}
+									if (manifold.pIncident->isDynamic())
+										handleConstraintAction(manifold);
+									break;
+								case CAPSULE_CAPSULE:
+									solveDynamicPenetration(manifold, *manifold.pIncident);
+									solveStaticCapsuleManifold(manifold, *manifold.pIncident);
+									break;
 								case COMPOUND:
-									solveDynamicPenetration(manifold, *manifold.pIncident->pBody);
-									solveStaticManifold(manifold, *manifold.pIncident->pBody, interDeltaTime);
+									if (!manifold.pIncident)
+										continue;
+									solveDynamicPenetration(manifold, *manifold.pIncident);
+									solveStaticManifold(manifold, *manifold.pIncident, interDeltaTime);
 									break;
 								}
 								if (manifold.pIncident && manifold.pReference)
 								{
-									manifold.pIncident->pBody->frameManifold.combine(manifold);
+									manifold.pIncident->frameManifold.combine(manifold);
 									GBManifold refManifold = GBManifold::asReference(manifold);
-									manifold.pReference->pBody->frameManifold.combine(refManifold);
+									manifold.pReference->frameManifold.combine(refManifold);
 								}
 							}
 						}
@@ -1345,26 +1628,26 @@ struct GBSimulation
 
 	void handleConstraintAction(const GBManifold& manifold)
 	{
-		if (manifold.pIncident->pBody->constraintType == GBBody::ConstraintType::NONE)
+		if (manifold.pIncident->constraintType == GBBody::ConstraintType::NONE || manifold.pIncident->isKinematic)
 		{
 			return;
 		}
 
 		GBVector3 r = manifold.contacts[0].position;
 		GBVector3 dir = GBCross(-manifold.normal, r.normalized()).normalized();
-		GBBody* pOther = manifold.pReference && manifold.pReference->pBody ? manifold.pReference->pBody : nullptr;
+		GBBody* pOther = manifold.pReference ? manifold.pReference : nullptr;
 
 		if (manifold.numContacts == 1)
 		{
-			manifold.pIncident->pBody->setConstraintPoint(manifold.contacts[0].position, pOther);
+			manifold.pIncident->setConstraintPoint(manifold.contacts[0].position, pOther);
 		}
 		else if (manifold.numContacts == 2)
 		{
-			manifold.pIncident->pBody->setConstraintEdge(manifold.contacts[0].position, manifold.contacts[1].position, pOther);
+			manifold.pIncident->setConstraintEdge(manifold.contacts[0].position, manifold.contacts[1].position, pOther);
 		}
 		else
 		{
-			manifold.pIncident->pBody->isSleeping = true;
+			manifold.pIncident->isSleeping = true;
 		}
 	}
 
@@ -1374,11 +1657,18 @@ struct GBSimulation
 		if (visited.find(&root) != visited.end()) return; // already moved
 		visited.insert(&root);
 
-		if (root.isDynamic())
+		if (root.isKinematic)
+		{
+			root.transform.position += manifold.normal * manifold.separation;
+			return;
+		}
+		else if (root.isDynamic())
 		{
 			float sepCap = GBClamp(manifold.separation, manifold.separation, 0.05f);
 				root.transform.position += manifold.normal * sepCap;
 		}
+
+
 
 		if (propogate && visited.size()<maxRecurseDepth)
 		{
@@ -1404,20 +1694,20 @@ struct GBSimulation
 
 	void solveDynamicPenetrationEqually(GBManifold& manifold)
 	{
-		bool iDynamic = manifold.pIncident && manifold.pIncident->pBody->isDynamic() ? true : false;
-		bool rDynamic = manifold.pReference && manifold.pReference->pBody->isDynamic() ? true : false;
+		bool iDynamic = manifold.pIncident && manifold.pIncident->isDynamic() ? true : false;
+		bool rDynamic = manifold.pReference && manifold.pReference->isDynamic() ? true : false;
 		if (iDynamic && rDynamic)
 		{
-			manifold.pReference->pBody->transform.position -= manifold.separation * manifold.normal * 0.5f;
-			manifold.pIncident->pBody->transform.position += manifold.separation * manifold.normal * 0.5f;
+			manifold.pReference->transform.position -= manifold.separation * manifold.normal * 0.5f;
+			manifold.pIncident->transform.position += manifold.separation * manifold.normal * 0.5f;
 		}
-		else if (iDynamic && !manifold.pIncident->pBody->isStatic)
+		else if (iDynamic && !manifold.pIncident->isStatic)
 		{
-			manifold.pIncident->pBody->transform.position += manifold.separation * manifold.normal;
+			manifold.pIncident->transform.position += manifold.separation * manifold.normal;
 		}
 		else if(rDynamic)
 		{
-			manifold.pReference->pBody->transform.position -= manifold.separation * manifold.normal;
+			manifold.pReference->transform.position -= manifold.separation * manifold.normal;
 
 		}
 	}

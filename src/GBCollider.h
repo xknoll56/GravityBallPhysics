@@ -9,11 +9,24 @@ enum class ColliderType
 {
 	Sphere,
 	Box,
-	AABB
+	AABB,
+	Capsule,
 };
 
 struct GBBody;
 struct GBCell;
+
+enum GBGeometryType
+{
+	COLLIDER = 0,
+	STATIC = 1
+};
+
+struct GBGeometry
+{
+	GBGeometryType geometryType;
+	virtual ~GBGeometry() = default;
+};
 
 
 struct GBCollider
@@ -32,40 +45,11 @@ struct GBCollider
 	virtual void updateAABB() = 0;
 	virtual ~GBCollider() {}
 
-	void setPosition(const GBVector3& position, bool doUpdateAABB = true)
-	{
-		transform.setPosition(position);
-		if(doUpdateAABB)
-			updateAABB();
-	}
-
-	void setRotation(const GBQuaternion& rotation, bool doUpdateAABB = true)
-	{
-		transform.setRotation(rotation);
-		if (doUpdateAABB)
-			updateAABB();
-	}
-	void translate(const GBVector3& translation, bool doUpdateAABB = true)
-	{
-		transform.translate(translation);
-		if (doUpdateAABB)
-			updateAABB();
-	}
-	void rotate(const GBQuaternion& rotation, bool doUpdateAABB = true)
-	{
-		transform.rotate(rotation);
-		if (doUpdateAABB)
-			updateAABB();
-	}
-
-	void setTransform(const GBTransform& newTransform, bool doUpdateAABB = true)
-	{
-		setPosition(newTransform.position, false);
-		setRotation(newTransform.rotation, false);
-
-		if (doUpdateAABB)
-			updateAABB();
-	}
+	void setPosition(const GBVector3& position, bool doUpdateAABB = true);
+	void setRotation(const GBQuaternion& rotation, bool doUpdateAABB = true);
+	void translate(const GBVector3& translation, bool doUpdateAABB = true);
+	void rotate(const GBQuaternion& rotationDelta, bool doUpdateAABB = true);
+	void setTransform(const GBTransform& newTransform, bool doUpdateAABB = true);
 
 	virtual float volume() const = 0;
 
@@ -106,8 +90,8 @@ struct GBManifold
 	int numContacts = 0;
 	float separation = 0.0f;
 	GBVector3 normal;
-	GBCollider* pIncident = nullptr;
-	GBCollider* pReference = nullptr;
+	GBBody* pIncident = nullptr;
+	GBBody* pReference = nullptr;
 	bool isEdge = false;
 	bool isDynamicManifold = false;
 
@@ -116,7 +100,7 @@ struct GBManifold
 
 	}
 
-	GBManifold(const GBContact& contact, GBCollider* pIncident = nullptr, GBCollider* pReference = nullptr) :
+	GBManifold(const GBContact& contact, GBBody* pIncident = nullptr, GBBody* pReference = nullptr) :
 		pIncident(pIncident), pReference(pReference)
 	{
 		addContact(contact);
@@ -255,7 +239,7 @@ struct GBManifold
 
 	void flipAndSwap()
 	{
-		GBCollider* temp = pIncident;
+		GBBody* temp = pIncident;
 		pIncident = pReference;
 		pReference = temp;
 		flip();
@@ -294,7 +278,7 @@ struct GBManifold
 		}
 		avg *= (1.0f / (float)numContacts);
 		float sep = separation == 0.0f ? contacts[0].penetrationDepth : separation;
-		return GBContact(avg, contacts[0].normal, sep, pReference, pIncident);
+		return GBContact(avg, contacts[0].normal, sep);
 	}
 
 	void combine(const GBManifold& other)
@@ -312,6 +296,12 @@ struct GBManifold
 		separation = other.separation;
 		pReference = other.pReference;
 		pIncident = other.pIncident;
+	}
+
+	void useNormal(const GBContact& contact)
+	{
+		normal = contact.normal;
+		separation = GBAbs(contact.penetrationDepth);
 	}
 
 	bool equalPair(const GBManifold& other) const
@@ -332,7 +322,18 @@ struct GBManifold
 
 	bool hasGroundedManifold = false;
 
-	void pruneBehindPlane(const GBPlane& plane);
+	inline void pruneBehindPlane(const GBPlane& plane);
+
+	inline void pruneWithNormal(float epsilon = 1e-5);
+
+	void correctPenetrations()
+	{
+		for (int i = 0; i < numContacts; i++)
+		{
+			contacts[i].penetrationDepth = GBAbs(contacts[i].penetrationDepth);
+		}
+	}
+
 };
 
 struct GBStaticGeometry;
@@ -415,6 +416,8 @@ struct GBBody
 	uint32_t mask = 0xFFFFFFFF; // collides with all layers
 
 	bool skipSolverForBody = false;
+
+	bool isKinematic = false;
 
 	bool sharesLayer(const GBBody& other)
 	{
@@ -773,6 +776,8 @@ struct GBBody
 			return false;
 		if (isSleeping)
 			return false;
+		if (isKinematic)
+			return false;
 		return true;
 	}
 
@@ -1010,9 +1015,65 @@ struct GBBody
 	}
 };
 
+inline void GBCollider::setPosition(const GBVector3& position, bool doUpdateAABB)
+{
+	transform.setPosition(position);
+	if (pBody)
+	{
+		localTransform.position = transform.position - pBody->transform.position;
+	}
+	if (doUpdateAABB)
+		updateAABB();
+}
+
+inline void GBCollider::setRotation(const GBQuaternion& rotation, bool doUpdateAABB)
+{
+	transform.setRotation(rotation);
+
+	if (pBody)
+	{
+		localTransform = pBody->transform.inverse() * transform;
+	}
+
+	if (doUpdateAABB)
+		updateAABB();
+}
+
+inline void GBCollider::translate(const GBVector3& translation, bool doUpdateAABB)
+{
+	transform.translate(translation);
+	if (doUpdateAABB)
+		updateAABB();
+}
+inline void GBCollider::rotate(const GBQuaternion& rotationDelta, bool doUpdateAABB)
+{
+	transform.rotate(rotationDelta);
+
+	if (pBody)
+	{
+		localTransform = pBody->transform.inverse() * transform;
+	}
+
+	if (doUpdateAABB)
+		updateAABB();
+}
+
+inline void GBCollider::setTransform(const GBTransform& newTransform, bool doUpdateAABB)
+{
+	transform = newTransform;
+
+	if (pBody)
+	{
+		localTransform = pBody->transform.inverse() * transform;
+	}
+
+	if (doUpdateAABB)
+		updateAABB();
+}
+
 inline void GBManifold::flipAndSwapIfOnTop()
 {
-	if (pIncident->pBody->transform.position.z < pReference->pBody->transform.position.z)
+	if (pIncident->transform.position.z < pReference->transform.position.z)
 	{
 		flipAndSwap();
 	}
@@ -1022,8 +1083,8 @@ inline void GBManifold::flipAndSwapIfContactOnTop(GBVector3 manifoldNormal)
 {
 	if (GBDot(manifoldNormal, GBVector3::up()) < 0.00f)
 		manifoldNormal *= -1.0f;
-	float projRef = GBDot(manifoldNormal, pReference->pBody->transform.position);
-	float projInc = GBDot(manifoldNormal, pIncident->pBody->transform.position);
+	float projRef = GBDot(manifoldNormal, pReference->transform.position);
+	float projInc = GBDot(manifoldNormal, pIncident->transform.position);
 	if (projInc < projRef)
 	{
 		flipAndSwap();
@@ -1083,6 +1144,53 @@ struct GBSphereCollider : public GBCollider {
 	}
 };
 
+struct GBCapsuleCollider : public GBCollider {
+	float radius;
+	float height;
+	GBCapsuleCollider()
+		: GBCollider(), radius(0.5f), height(1.0f)
+	{
+		type = ColliderType::Capsule;
+		updateAABB();
+	}
+	GBCapsuleCollider(float radius, float height)
+		: GBCollider(), radius(radius), height(height)
+	{
+		type = ColliderType::Capsule;
+		updateAABB();
+	}
+
+	void extractSphereLocations(GBVector3& topSphere, GBVector3& bottomSphere, GBVector3* pUp = nullptr) const
+	{
+		GBVector3 up = transform.up();
+		if(pUp)
+			*pUp = up;
+		topSphere = transform.position + up * (height * 0.5f);
+		bottomSphere = transform.position - up * (height * 0.5f);
+	}
+
+	GBEdge getSphereToSphereEdge()
+	{
+		GBVector3 lower, upper;
+		extractSphereLocations(upper, lower);
+		return GBEdge(lower, upper);
+	}
+
+	void updateAABB() override
+	{
+		GBVector3 topSphere, bottomSphere;
+		extractSphereLocations(topSphere, bottomSphere);
+		GBAABB top = GBAABB(topSphere, GBVector3(radius, radius, radius));
+		GBAABB bot = GBAABB(bottomSphere, GBVector3(radius, radius, radius));
+		aabb = top;
+		aabb.includeAABB(bot);
+	}
+	float volume() const  override
+	{
+		return GB_PI * radius * radius * ((4.0f / 3.0f) * radius + height);
+	}
+};
+
 
 enum GBStaticGeometryType
 {
@@ -1137,7 +1245,7 @@ struct GBPlane : GBStaticGeometry
 	}
 };
 
-inline void GBManifold::pruneBehindPlane(const GBPlane& plane)
+void GBManifold::pruneBehindPlane(const GBPlane& plane)
 {
 	GBManifold pruned;
 	pruned.useNormal(*this);
@@ -1145,6 +1253,21 @@ inline void GBManifold::pruneBehindPlane(const GBPlane& plane)
 	{
 		if (GBDot(contacts[i].position - plane.point, plane.normal) < 0)
 			pruned.addContact(contacts[i]);
+	}
+	clear();
+	combine(pruned);
+}
+
+void GBManifold::pruneWithNormal(float epsilon)
+{
+	GBManifold pruned;
+	pruned.useNormal(*this);
+	for (int i = 0; i < numContacts; i++)
+	{
+		if ((1 - GBDot(normal, contacts[i].normal) <= epsilon))
+		{
+			pruned.addContact(contacts[i]);
+		}
 	}
 	clear();
 	combine(pruned);
@@ -1511,5 +1634,54 @@ struct GBBoxCollider : public GBCollider {
 	float volume() const  override
 	{
 		return halfExtents.x * halfExtents.y * halfExtents.z;
+	}
+};
+
+
+struct GBParticle
+{
+	GBVector3 position;
+	GBVector3 prevPosition;
+	GBVector3 acceleration;
+	float mass;
+	bool pinned;
+
+	GBParticle(GBVector3 position, float mass = 1.0f, bool pinned = false) :
+		position(position), prevPosition(position), acceleration(GBVector3()),
+		mass(mass), pinned(pinned)
+	{
+
+	}
+};
+
+
+struct GBSpring
+{
+	int p1;          // index of first particle
+	int p2;          // index of second particle
+	float restLength; // original distance between particles
+	float stiffness;  // spring constant
+
+	GBSpring(int p1, int p2, float restLength, float stiffness) :
+		p1(p1), p2(p2), restLength(restLength), stiffness(stiffness)
+	{
+
+	}
+};
+
+struct GBCloth
+{
+	int width;
+	int height;
+	float spacing;
+	float particleRadius;
+	std::vector<GBParticle> particles;
+	std::vector<GBSpring> springs;
+
+	// Index will start moving along the horizontal 
+	// creating rows.
+	int index(int x, int y)
+	{
+		return y * width + x;
 	}
 };

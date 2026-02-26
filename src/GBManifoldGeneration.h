@@ -107,15 +107,17 @@ struct GBManifoldGeneration
 		GBVector3 normal(0, 0, 0);
 		if (inside)
 		{
-			// Pick the closest face to rayOrigin
-			GBVector3 delta = rayOrigin - box.center;
-			GBVector3 absDelta = GBAbs(delta);
-			if (absDelta.x > absDelta.y && absDelta.x > absDelta.z)
-				normal = (delta.x > 0) ? GBVector3(1, 0, 0) : GBVector3(-1, 0, 0);
-			else if (absDelta.y > absDelta.z)
-				normal = (delta.y > 0) ? GBVector3(0, 1, 0) : GBVector3(0, -1, 0);
+			GBVector3 local = rayOrigin - box.center;
+
+			GBVector3 distToFace = box.halfExtents - GBAbs(local);
+
+			// pick smallest distance to surface
+			if (distToFace.x < distToFace.y && distToFace.x < distToFace.z)
+				normal = GBVector3((local.x > 0) ? 1 : -1, 0, 0);
+			else if (distToFace.y < distToFace.z)
+				normal = GBVector3(0, (local.y > 0) ? 1 : -1, 0);
 			else
-				normal = (delta.z > 0) ? GBVector3(0, 0, 1) : GBVector3(0, 0, -1);
+				normal = GBVector3(0, 0, (local.z > 0) ? 1 : -1);
 		}
 		else
 		{
@@ -170,6 +172,103 @@ struct GBManifoldGeneration
 		return true;
 	}
 
+
+	// TODO TEST THIS****************************************************************
+	static bool GBRaycastCapsule(
+		const GBCapsuleCollider& capsule,
+		const GBVector3& rayOrigin,
+		const GBVector3& rayDir,
+		GBContact& outContact,
+		float maxDistance = 1e30f)
+	{
+		// --------------------------------------------------
+		// Get capsule segment
+		// --------------------------------------------------
+		GBVector3 A, B;
+		capsule.extractSphereLocations(A, B);
+
+		GBVector3 AB = B - A;
+		GBVector3 AO = rayOrigin - A;
+
+		float ab2 = AB.dot(AB);
+		float ao_ab = AO.dot(AB);
+		float d_ab = rayDir.dot(AB);
+
+		GBVector3 m = AO - AB * (ao_ab / ab2);
+		GBVector3 n = rayDir - AB * (d_ab / ab2);
+
+		float a = n.dot(n);
+		float b = 2.0f * m.dot(n);
+		float c = m.dot(m) - capsule.radius * capsule.radius;
+
+		float bestT = maxDistance;
+		bool hit = false;
+
+		// --------------------------------------------------
+		// Ray vs infinite cylinder
+		// --------------------------------------------------
+		float disc = b * b - 4 * a * c;
+		if (disc >= 0.0f && fabsf(a) > 1e-6f)
+		{
+			float sqrtDisc = sqrtf(disc);
+			float t = (-b - sqrtDisc) / (2 * a);
+
+			if (t >= 0.0f && t <= bestT)
+			{
+				float y = ao_ab + t * d_ab;
+				if (y >= 0.0f && y <= ab2)
+				{
+					bestT = t;
+					hit = true;
+				}
+			}
+		}
+
+		// --------------------------------------------------
+		// Ray vs end spheres
+		// --------------------------------------------------
+		GBSphereCollider s0, s1;
+		s0.radius = capsule.radius;
+		s1.radius = capsule.radius;
+		s0.transform.position = A;
+		s1.transform.position = B;
+
+		GBContact c0, c1;
+
+		if (GBRaycastSphere(s0, rayOrigin, rayDir, c0, bestT))
+		{
+			bestT = c0.penetrationDepth;
+			outContact = c0;
+			hit = true;
+		}
+
+		if (GBRaycastSphere(s1, rayOrigin, rayDir, c1, bestT))
+		{
+			bestT = c1.penetrationDepth;
+			outContact = c1;
+			hit = true;
+		}
+
+		// --------------------------------------------------
+		// If cylinder was closest hit
+		// --------------------------------------------------
+		if (hit && bestT < maxDistance)
+		{
+			outContact.position = rayOrigin + rayDir * bestT;
+
+			GBVector3 proj =
+				A + AB * ((outContact.position - A).dot(AB) / ab2);
+
+			outContact.normal =
+				(outContact.position - proj).normalized();
+
+			outContact.penetrationDepth = bestT;
+			return true;
+		}
+
+		return false;
+	}
+
 	static bool GBRaycastOBB(
 		const GBTransform& boxTransform,
 		const GBVector3& boxHalfExtents,
@@ -213,7 +312,7 @@ struct GBManifoldGeneration
 		{
 			outContact.position = point;
 			outContact.normal = dir.normalized();
-			outContact.penetrationDepth = radius - dist;
+			outContact.penetrationDepth = GBAbs(radius - dist);
 			return true;
 		}
 		return false;
@@ -225,6 +324,51 @@ struct GBManifoldGeneration
 		GBContact& outContact)
 	{
 		return GBManifoldGeneration::GBContactSpherePoint(sphere.transform.position, sphere.radius, point, outContact);
+	}
+
+	static bool GBContactCapsulePoint(
+		const GBCapsuleCollider& capsule,
+		const GBVector3& point,
+		GBContact& outContact)
+	{
+		GBVector3 upperS, lowerS, up;
+		capsule.extractSphereLocations(upperS, lowerS, &up);
+
+		GBVector3 dp = point - capsule.transform.position;
+		float t = GBDot(up, dp);
+		float tr = GBAbs(t) - capsule.height;
+		if (GBAbs(t) <= 0.5f*capsule.height)
+		{
+			GBVector3 forward = capsule.transform.forward();
+			GBVector3 right = capsule.transform.right();
+			float forAmount = GBDot(forward, dp);
+			float rightAmount = GBDot(right, dp);
+			if (forAmount * forAmount + rightAmount * rightAmount <= capsule.radius * capsule.radius)
+			{
+				float dist = sqrt(forAmount * forAmount + rightAmount * rightAmount);
+				GBVector3 normal = (forward * forAmount + right * rightAmount) / dist;
+
+				outContact.penetrationDepth = GBAbs(capsule.radius - dist);
+				outContact.normal = -normal;
+				outContact.pIncident = (GBCollider*)&capsule;
+				outContact.position = point;
+				return true;
+			}
+		}
+		else if (tr <= capsule.radius)
+		{
+			if (t >= 0.0f)
+			{
+				//Check upper sphere
+				return GBManifoldGeneration::GBContactSpherePoint(upperS, capsule.radius, point, outContact);
+			}
+			else
+			{
+				//Check lower sphere
+				return GBManifoldGeneration::GBContactSpherePoint(lowerS, capsule.radius, point, outContact);
+			}
+		}
+		return false;
 	}
 
 	static bool GBContactSphereEdge(
@@ -263,6 +407,157 @@ struct GBManifoldGeneration
 		return GBContactSphereEdge(sphere.transform.position, sphere.radius, edge, outContact);
 	}
 
+	static bool GBContactCapsuleEdge(
+		const GBCapsuleCollider& capsule,
+		const GBEdge& edge,
+		GBContact& outContact,
+		GBVector3* pClosestOnEdge = nullptr)
+	{
+		GBEdge connection;
+
+		GBVector3 lower, upper, up;
+		capsule.extractSphereLocations(upper, lower, &up);
+
+		GBEdge capEdge = GBEdge(lower, upper);
+
+		GBContact c;
+		GBEdge outEdge;
+		float s, t;
+		if (GBEdge::closestEdgeBetween(capEdge, edge, outEdge, false, &s, &t))
+		{
+			if (pClosestOnEdge)
+			{
+				edge.isPointOnEdge(outEdge.b, pClosestOnEdge);
+			}
+			//drawEdge(GetWorld(), outEdge, 5, FColor::Red);
+			if (s <= 0.0f)
+			{
+				// Closest to lower sphere
+				if (GBManifoldGeneration::GBContactSphereEdge(lower, capsule.radius, edge, outContact))
+				{
+					return !capEdge.isPointOnEdge(outContact.position);
+				}
+			}
+			else if (s >= 1.0f)
+			{
+				//Closest to upper sphere
+				if (GBManifoldGeneration::GBContactSphereEdge(upper, capsule.radius, edge, outContact))
+				{
+					return !capEdge.isPointOnEdge(outContact.position);
+				}
+			}
+			else
+			{
+				// Closest point is on cylinder portion
+				GBVector3 capsulePoint = outEdge.a; // closest point on capsule axis
+				GBVector3 edgePoint = outEdge.b; // closest point on edge
+				GBVector3 offset = edgePoint - capsulePoint;
+				float distSqr = offset.lengthSquared();
+
+				GBVector3 clampedPoint;
+				if (!edge.isPointOnEdge(outEdge.b, &clampedPoint))
+				{
+					return GBContactCapsulePoint(capsule, clampedPoint, outContact);
+				}
+				else if (distSqr <= capsule.radius * capsule.radius)
+				{
+					float dist = sqrtf(distSqr);
+
+					//outContact.position = capsulePoint + offset * (capsule.radius / dist);
+					outContact.position = outEdge.b;
+					outContact.normal = -offset.normalized();  // flip normal so capsule is incident
+					outContact.penetrationDepth = GBAbs(capsule.radius - dist);
+
+					return true;
+				}
+			}
+		}
+
+		return false;
+	}
+
+	static bool GBManifoldCapsuleCapsule(
+		const GBCapsuleCollider& reference,
+		const GBCapsuleCollider& incident,
+		GBManifold& outManifold)
+	{
+		outManifold.pReference = reference.pBody;
+		outManifold.pIncident = incident.pBody;
+		float s, t;
+		GBVector3 rp, ip;
+		GBVector3 rLower, rHigher, rUp, iLower, iHigher, iUp;
+		reference.extractSphereLocations(rHigher, rLower, &rUp);
+		incident.extractSphereLocations(iHigher, iLower, &iUp);
+		GBEdge rEdge = { rLower, rHigher };
+		GBEdge iEdge = { iLower, iHigher };
+		GBEdge::closestPointsSegmentSegment(rEdge, iEdge, s, t, rp, ip);
+
+		GBVector3 delta = ip - rp;
+		float distSq = delta.lengthSquared();
+		float radiusSum = reference.radius + incident.radius;
+
+		if (distSq < radiusSum * radiusSum)
+		{
+			float dist = sqrt(distSq);
+			GBVector3 normal = dist > 1e-6f ? delta / dist : GBVector3(0, 1, 0);
+			float penetration = radiusSum - dist;
+
+			outManifold.addContact(
+				GBContact(rp + normal * reference.radius, normal, penetration)
+			);
+
+			outManifold.useNormal(outManifold.contacts[0]);
+			return true;
+		}
+
+		if (outManifold.numContacts > 0)
+		{
+			if (GBDot(incident.transform.position - reference.transform.position, outManifold.normal) < 0)
+				outManifold.normal *= -1.0f;
+		}
+		return outManifold.numContacts > 0;
+	}
+
+	static bool GBManifoldCapsulePlane(
+		const GBCapsuleCollider& capsule,
+		const GBPlane& plane,
+		GBManifold& manifold,
+		bool lockNormal = false)
+	{
+		GBVector3 normal1, normal2;
+		normal1 = plane.normal;
+		normal2 = plane.normal;
+
+		GBVector3 upper, lower, up;
+		capsule.extractSphereLocations(upper, lower, &up);
+		GBVector3 dp1 = upper - plane.point;
+		GBVector3 dp2 = lower - plane.point;
+
+		if (GBDot(dp1, normal1) < 0.0f)
+			normal1 = -normal1;
+		if (GBDot(dp2, normal2) < 0.0f)
+			normal2 = -normal2;
+
+		// Adjust to where the actual hits will be
+		upper -= normal1 * capsule.radius;
+		lower -= normal2 * capsule.radius;
+		float d_upper, d_lower;
+		d_upper = GBDot(normal1, upper - plane.point);
+		d_lower = GBDot(normal2, lower - plane.point);
+
+		if (d_upper <= 0.0f)
+		{
+			manifold.addContact(GBContact(upper - normal1 * d_upper , normal1, GBAbs(d_upper)));
+		}
+
+		if (d_lower <= 0.0f)
+		{
+			manifold.addContact(GBContact(lower - normal2 * d_lower, normal2, GBAbs(d_lower)));
+		}
+
+		return manifold.numContacts > 0;
+	}
+
 	static bool GBContactSphereTriangle(
 		const GBSphereCollider& sphere,
 		const GBTriangle& triangle,
@@ -285,6 +580,7 @@ struct GBManifoldGeneration
 					outContact.position = contact.position;
 					outContact.normal = normal; // Avoid division by zero
 					outContact.penetrationDepth = sphere.radius - dist;
+					outContact.pIncident = (GBCollider*)&sphere;
 					return true;
 				}
 			}
@@ -293,9 +589,271 @@ struct GBManifoldGeneration
 			if (GBManifoldGeneration::GBContactSphereEdge(sphere, closestEdge, edgeContact))
 			{
 				outContact = edgeContact;
+				outContact.pIncident = (GBCollider*)&sphere;
 				return true;
 			}
 		}
+		return false;
+	}
+
+	static bool GBManifoldCapsuleTriangle(
+		const GBCapsuleCollider& capsule,
+		const GBTriangle& triangle,
+		GBManifold& outManifold)
+	{
+		GBPlane plane = triangle.toPlane();
+		GBVector3 normal = GBFixNormal(plane.normal, plane.point, capsule.transform.position);
+		GBManifold planeTestMan, planeMan, edgeMan;
+		if (GBManifoldCapsulePlane(capsule, plane, planeTestMan))
+		{
+			for (int i = 0; i < planeTestMan.numContacts; i++)
+			{
+				if (triangle.PointInTriangle(planeTestMan.contacts[i].position))
+				{
+					planeMan.addContact(planeTestMan.contacts[i]);
+				}
+			}
+		}
+		GBEdge edges[3];
+		triangle.extractEdges(edges);
+		GBVector3 center = triangle.center();
+		bool useEdge = false;
+		for (int i = 0; i < 3; i++)
+		{
+			GBContact c;
+			if (GBContactCapsuleEdge(capsule, edges[i], c))
+			{
+				//Need to prune contacts that point inward...
+				GBVector3 out = GBCross(edges[i].getAOutDirection(), normal);
+				if (GBDot(out, center - edges[i].a) > 0)
+					out = -out;
+
+				if (GBDot(c.normal, out) < 0.0f)
+					c.normal = -c.normal;
+
+				GBVector3 dp = capsule.transform.position - c.position;
+				if (GBDot(dp, c.normal) < 0)
+					c.normal = -c.normal;
+
+
+				edgeMan.addContact(c);
+
+				if (planeMan.numContacts > 0)
+				{
+					if (GBAbs(planeMan.contacts[0].penetrationDepth) < GBAbs(c.penetrationDepth))
+						useEdge = true;
+				}
+			}
+		}
+
+		if (planeMan.numContacts > 0)
+		{
+			if (useEdge)
+			{
+				outManifold.useNormal(edgeMan.contacts[0]);
+				outManifold.combine(edgeMan);
+			}
+			else
+			{
+				outManifold.useNormal(planeMan.contacts[0]);
+				outManifold.combine(planeMan);
+			}
+		}
+		else if(edgeMan.numContacts > 0)
+		{
+			outManifold.useNormal(edgeMan.contacts[0]);
+			outManifold.combine(edgeMan);
+		}
+
+
+		outManifold.pIncident = capsule.pBody;
+
+		outManifold.pruneWithNormal(1e-4);
+		outManifold.correctPenetrations();
+
+
+		if (outManifold.numContacts > 0)
+			outManifold.separation = GBAbs(outManifold.contacts[0].penetrationDepth);
+
+		return outManifold.numContacts > 0;
+	}
+
+	static bool GBManifoldCapsuleQuad(
+		const GBCapsuleCollider& capsule,
+		const GBQuad& quad,
+		GBManifold& outManifold, 
+		bool lockNormal = false)
+	{
+		GBPlane plane = quad.toPlane();
+		GBVector3 normal = GBFixNormal(plane.normal, plane.point, capsule.transform.position);
+		GBManifold planeTestMan, planeMan, edgeMan;
+		if (GBManifoldCapsulePlane(capsule, plane, planeTestMan, lockNormal))
+		{
+			for (int i = 0; i < planeTestMan.numContacts; i++)
+			{
+				if (quad.isPointContained(planeTestMan.contacts[i].position))
+				{
+					
+					planeMan.addContact(planeTestMan.contacts[i]);
+				}
+			}
+		}
+		GBEdge edges[4];
+		quad.extractEdges(edges);
+		GBVector3 center = quad.position;
+		bool useEdge = false;
+		for (int i = 0; i < 4; i++)
+		{
+			GBContact c;
+			if (GBContactCapsuleEdge(capsule, edges[i], c))
+			{
+				//Need to prune contacts that point inward...
+				GBVector3 out = GBCross(edges[i].getAOutDirection(), normal);
+				if (GBDot(out, center - edges[i].a) > 0)
+					out = -out;
+
+				if (GBDot(c.normal, out) < 0.0f)
+					c.normal = -c.normal;
+
+				GBVector3 dp = capsule.transform.position - c.position;
+				if (GBDot(dp, c.normal) < 0)
+					c.normal = -c.normal;
+
+				edgeMan.addContact(c);
+
+
+				if (planeMan.numContacts > 0)
+				{
+					if (GBAbs(planeMan.contacts[0].penetrationDepth) < GBAbs(c.penetrationDepth))
+						useEdge = true;
+				}
+			}
+		}
+
+		if (planeMan.numContacts > 0)
+		{
+			if (useEdge)
+			{
+				outManifold.useNormal(edgeMan.contacts[0]);
+				outManifold.combine(edgeMan);
+			}
+			else
+			{
+				outManifold.useNormal(planeMan.contacts[0]);
+				outManifold.combine(planeMan);
+			}
+		}
+		else if (edgeMan.numContacts > 0)
+		{
+			outManifold.useNormal(edgeMan.contacts[0]);
+			outManifold.combine(edgeMan);
+		}
+
+		outManifold.pruneWithNormal(1e-4);
+		outManifold.correctPenetrations();
+
+		if (outManifold.numContacts > 0)
+			outManifold.separation = GBAbs(outManifold.contacts[0].penetrationDepth);
+		outManifold.pIncident = capsule.pBody;
+
+		return outManifold.numContacts > 0;
+	}
+
+	static bool GBManifoldCapsuleBox(
+		const GBCapsuleCollider& capsule,
+		 GBBoxCollider& box,
+		GBManifold& outManifold)
+	{
+		GBBoxCollider testBox(box.halfExtents + GBVector3{capsule.radius, capsule.radius, capsule.radius});
+		testBox.setTransform(box.transform);
+		testBox.setVerts();
+		GBContact hit;
+		GBVector3 upper, lower;
+		capsule.extractSphereLocations(upper, lower);
+		if (GBRaycastOBB(testBox, lower, (upper - lower).normalized(), hit))
+		{
+			GBQuad face = GBBoxDirectionToQuad(box, hit.normal);
+			if (GBManifoldCapsuleQuad(capsule, face, outManifold, true))
+			{
+				outManifold.pIncident = capsule.pBody;
+				outManifold.pReference = box.pBody;
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	static bool GBManifoldCapsuleSphere(
+		const GBCapsuleCollider& capsule,
+		const GBSphereCollider& sphere,
+		GBManifold& outManifold)
+	{
+		GBVector3 closestPoint;
+		GBVector3 upper, lower, up;
+		capsule.extractSphereLocations(upper, lower, &up);
+		GBEdge capsuleEdge = { lower, upper };
+		GBVector3 pointOnEdge = capsuleEdge.closestPointOnLine(sphere.transform.position);
+
+		float s = GBDot(pointOnEdge - lower, up);
+		GBContact c;
+		GBSphereCollider lowerS(capsule.radius);
+		lowerS.transform.position = lower;
+		GBSphereCollider upperS(capsule.radius);
+		upperS.transform.position = upper;
+		bool retValue = false;
+		if (s < 0.0f)
+		{
+			if (GBManifoldGeneration::GBContactSphereSphere(lowerS, sphere, c))
+			{
+				c.position = sphere.transform.position - c.normal * sphere.radius;
+				outManifold.addContact(c);
+				retValue = true;
+			}
+		}
+		else if (s > capsule.height)
+		{
+			if (GBManifoldGeneration::GBContactSphereSphere(upperS, sphere, c))
+			{
+				c.position = sphere.transform.position - c.normal * sphere.radius;
+				outManifold.addContact(c);
+				retValue = true;
+			}
+		}
+		else
+		{
+			GBVector3 diff = sphere.transform.position - pointOnEdge;
+			float dist = diff.length();
+
+			float r = capsule.radius + sphere.radius;
+
+			if (dist < r)
+			{
+				c.normal = (dist > 1e-6f) ? diff / dist : GBVector3::up();
+				c.position = sphere.transform.position - c.normal * sphere.radius;
+				c.penetrationDepth = r - dist;
+
+				outManifold.addContact(c);
+				retValue = true;
+			}
+		}
+
+		if (retValue)
+		{
+			if (outManifold.numContacts > 0)
+			{
+				if (GBDot(capsule.transform.position - outManifold.contacts[0].position, outManifold.contacts[0].normal) < 0)
+					outManifold.contacts[0].normal *= -1.0f;
+				outManifold.useNormal(outManifold.contacts[0]);
+				outManifold.separation = GBAbs(outManifold.contacts[0].penetrationDepth);
+			}
+			if (capsule.pBody)
+				outManifold.pIncident = capsule.pBody;
+			if (sphere.pBody)
+				outManifold.pReference = sphere.pBody;
+			return true;
+		}
+
 		return false;
 	}
 
@@ -373,8 +931,8 @@ struct GBManifoldGeneration
 		if (GBContactSphereSphere(a, b, c))
 		{
 			outManifold.addContact(c);
-			outManifold.pReference = (GBCollider*)&a;
-			outManifold.pIncident = (GBCollider*)&b;
+			outManifold.pReference = a.pBody;
+			outManifold.pIncident = b.pBody;
 			outManifold.separation = c.penetrationDepth;
 			outManifold.normal = c.normal;
 			return true;
@@ -524,8 +1082,8 @@ struct GBManifoldGeneration
 		if (GBContactSphereBox(sphere, box, c))
 		{
 			outManifold.addContact(c);
-			outManifold.pReference = (GBCollider*)&box;
-			outManifold.pIncident = (GBCollider*)&sphere;
+			outManifold.pReference = box.pBody;
+			outManifold.pIncident = sphere.pBody;
 			outManifold.separation = c.penetrationDepth;
 			outManifold.normal = c.normal;
 			return true;
@@ -1326,8 +1884,8 @@ struct GBManifoldGeneration
 			GBQuad qb = GBManifoldGeneration::GBBoxDirectionToQuad(boxB, -colData.bestAxis);
 			pReference = &boxA;
 			pIncident = &boxB;
-			outManifold.pReference = (GBCollider*)&boxA;
-			outManifold.pIncident = (GBCollider*)&boxB;
+			outManifold.pReference = boxA.pBody;
+			outManifold.pIncident = boxB.pBody;
 			outManifold.isEdge = true;
 			if (GBManifoldGeneration::GBManifoldEdgeEdge(qa, qb, colData.bestAxis, outManifold))
 			{
@@ -1359,8 +1917,8 @@ struct GBManifoldGeneration
 
 
 			outManifold.combine(m);
-			outManifold.pReference = (GBCollider*)pReference;
-			outManifold.pIncident = (GBCollider*)pIncident;
+			outManifold.pReference = pReference->pBody;
+			outManifold.pIncident = pIncident->pBody;
 			if (GBDot(outManifold.normal, colData.bestAxis) < 0)
 			{
 				outManifold.normal *= -1.0f;
@@ -1390,14 +1948,14 @@ struct GBManifoldGeneration
 			outManifold.combine(m);
 		}
 
-		outManifold.pIncident = (GBCollider*)pIncident;
-		outManifold.pReference = (GBCollider*)pReference;
+		outManifold.pIncident = pIncident->pBody;
+		outManifold.pReference = pReference->pBody;
 
-		if (outManifold.pIncident->pBody && outManifold.pReference->pBody)
+		if (outManifold.pIncident && outManifold.pReference)
 		{
-			if (outManifold.pIncident->pBody->isStatic)
+			if (outManifold.pIncident->isStatic)
 			{
-				GBCollider* temp = outManifold.pIncident;
+				GBBody* temp = outManifold.pIncident;
 				outManifold.pIncident = outManifold.pReference;
 				outManifold.pReference = temp;
 				outManifold.flip();
@@ -1586,7 +2144,7 @@ struct GBManifoldGeneration
 		//if (colData.bestType == GBSATCollisionType::FaceA || colData.bestType == GBSATCollisionType::FaceB)
 		{
 			//B is always incident
-			outManifold.pIncident = &box;
+			outManifold.pIncident = box.pBody;
 			normal = outManifold.normal;
 		}
 		//else
@@ -1594,7 +2152,7 @@ struct GBManifoldGeneration
 		GBManifold edgeManifold;
 		{
 			GBQuad qa = GBManifoldGeneration::GBBoxDirectionToQuad(box, -colData.bestAxis);
-			edgeManifold.pIncident = (GBCollider*)&box;
+			edgeManifold.pIncident = box.pBody;
 			edgeManifold.isEdge = true;
 			if (GBManifoldGeneration::GBManifoldTriangleQuadEdgeEdge(triangle, qa, colData.bestAxis, edgeManifold))
 			{

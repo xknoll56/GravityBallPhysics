@@ -107,11 +107,17 @@ struct GBEdge {
 		return a + AB * t;
 	}
 
+
+	//  This is used for infinite line segments and may not 
+	// output distance/point values on the edge if thats
+	// not where the minimum occurs.
 	static inline bool closestEdgeBetween(
 		const GBEdge& e1,
 		const GBEdge& e2,
 		GBEdge& outEdge,
-		bool ensureCrossing = false)
+		bool ensureCrossing = false, 
+		float* e1S = nullptr,
+		float* e2S = nullptr)
 	{
 		// Direction vectors (NOT normalized)
 		GBVector3 d1 = e1.b - e1.a;
@@ -143,6 +149,142 @@ struct GBEdge {
 			e1.a + d1 * s,
 			e2.a + d2 * t
 		);
+		if (e1S)
+			*e1S = s;
+		if (e2S)
+			*e2S = t;
+
+		return true;
+	}
+
+	static inline void closestPointsSegmentSegment(
+		const GBEdge& e1,
+		const GBEdge& e2,
+		float& s, float& t,
+		GBVector3& c1,
+		GBVector3& c2)
+	{
+		const float EPS = 1e-6f;
+
+		GBVector3 d1 = e1.b - e1.a; // segment 1 direction
+		GBVector3 d2 = e2.b - e2.a; // segment 2 direction
+		GBVector3 r = e1.a - e2.a;
+
+		float a = d1.dot(d1); // |d1|^2
+		float e = d2.dot(d2); // |d2|^2
+		float f = d2.dot(r);
+
+		// Both segments degenerate into points
+		if (a <= EPS && e <= EPS)
+		{
+			s = t = 0.0f;
+			c1 = e1.a;
+			c2 = e2.a;
+			return;
+		}
+
+		// First segment degenerate
+		if (a <= EPS)
+		{
+			s = 0.0f;
+			t = GBClamp(f / e, 0.0f, 1.0f);
+		}
+		else
+		{
+			float c = d1.dot(r);
+
+			// Second segment degenerate
+			if (e <= EPS)
+			{
+				t = 0.0f;
+				s = GBClamp(-c / a, 0.0f, 1.0f);
+			}
+			else
+			{
+				float b = d1.dot(d2);
+				float denom = a * e - b * b;
+
+				// If not parallel
+				if (denom != 0.0f)
+					s = GBClamp((b * f - c * e) / denom, 0.0f, 1.0f);
+				else
+					s = 0.0f; // parallel → pick arbitrary
+
+				float tNom = b * s + f;
+
+				if (tNom < 0.0f)
+				{
+					t = 0.0f;
+					s = GBClamp(-c / a, 0.0f, 1.0f);
+				}
+				else if (tNom > e)
+				{
+					t = 1.0f;
+					s = GBClamp((b - c) / a, 0.0f, 1.0f);
+				}
+				else
+				{
+					t = tNom / e;
+				}
+			}
+		}
+
+		c1 = e1.a + d1 * s;
+		c2 = e2.a + d2 * t;
+	}
+
+
+	static bool closestPointsOnSegments(
+		const GBEdge& e1,
+		const GBEdge& e2,
+		GBVector3& p1,
+		GBVector3& p2,
+		float* outS = nullptr,
+		float* outT = nullptr)
+	{
+		GBVector3 d1 = e1.b - e1.a;
+		GBVector3 d2 = e2.b - e2.a;
+		GBVector3 r = e1.a - e2.a;
+
+		float a = d1.lengthSquared();
+		float e = d2.lengthSquared();
+		float f = GBDot(d2, r);
+
+		float s, t;
+
+		if (a <= 1e-6f && e <= 1e-6f)
+		{
+			s = t = 0.f;
+			p1 = e1.a;
+			p2 = e2.a;
+		}
+		else if (a <= 1e-6f)
+		{
+			s = 0.f;
+			t = GBClamp(f / e, 0.f, 1.f);
+		}
+		else if (e <= 1e-6f)
+		{
+			s = GBClamp(-GBDot(d1, r) / a, 0.f, 1.f);
+			t = 0.f;
+		}
+		else
+		{
+			float denom = a * e - GBDot(d1, d2) * GBDot(d1, d2);
+
+			if (denom != 0.f)
+				s = GBClamp((GBDot(d1, r) * e - f * GBDot(d1, d2)) / denom, 0.f, 1.f);
+			else
+				s = 0.f;
+
+			t = GBClamp((f + GBDot(d1, d2) * s) / e, 0.f, 1.f);
+		}
+
+		p1 = e1.a + d1 * s;
+		p2 = e2.a + d2 * t;
+
+		if (outS) *outS = s;
+		if (outT) *outT = t;
 
 		return true;
 	}
@@ -151,6 +293,27 @@ struct GBEdge {
 	{
 		a = transform.transformPoint(a);
 		b = transform.transformPoint(b);
+	}
+
+	bool isPointOnEdge(const GBVector3& point, GBVector3* pClampedPoint = nullptr) const
+	{
+		GBVector3 dp = point - a;
+		GBVector3 out = b - a;
+		float dist = out.length();
+		out /= dist;
+		float proj = GBDot(out, dp);
+
+		if (pClampedPoint)
+		{
+			float c = GBClamp(proj, 0.0f, dist);
+			*pClampedPoint = a + c * out;
+		}
+
+		if (proj >= 0.0f && proj <= dist)
+		{
+			return true;
+		}
+		return false;
 	}
 
 };
@@ -516,4 +679,5 @@ struct GBAABB
 			p.y >= l.y && p.y <= h.y &&
 			p.z >= l.z && p.z <= h.z);
 	}
+
 };

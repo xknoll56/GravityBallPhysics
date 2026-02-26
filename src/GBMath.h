@@ -218,6 +218,11 @@ inline GBVector3 GBMax(GBVector3 a, GBVector3 b)
     return GBVector3(GBMax(a.x, b.x), GBMax(a.y, b.y), GBMax(a.z, b.z));
 }
 
+inline GBVector3 GBClamp(GBVector3 a, GBVector3 min, GBVector3 max)
+{
+    return GBVector3(GBClamp(a.x, min.x, max.x), GBClamp(a.y, min.y, max.y), GBClamp(a.z, min.z, max.z));
+}
+
 
 inline GBVector3 GBAbs(GBVector3 v)
 {
@@ -776,5 +781,14 @@ struct GBQuaternion {
         dq.toAxisAngle(axis, angle);
 
         return axis * (angle / dt);
+    }
+
+    bool isIdentity(float eps = 1e-6f) const
+    {
+        return
+            GBAbs(x) < eps &&
+            GBAbs(y) < eps &&
+            GBAbs(z) < eps &&
+            GBAbs(w - 1.0f) < eps;
     }
 };
