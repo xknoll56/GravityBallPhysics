@@ -412,6 +412,9 @@ struct GBBody
 	bool isGrounded = false;
 	int isGroundedCount = 0;
 
+	bool isPlayerController = false;
+	float playerSlopeValue = 0.7f;
+
 	uint32_t layer = 0xFFFFFFFF; // all 32 bits set → belongs to all layers
 	uint32_t mask = 0xFFFFFFFF; // collides with all layers
 

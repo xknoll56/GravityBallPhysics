@@ -4,6 +4,8 @@
 #include <map>
 #include <algorithm>
 
+struct GBGrid;
+
 struct GBCell
 {
 	GBVector3 anchor;
@@ -39,7 +41,15 @@ struct GBCell
 	}
 	std::vector<GBBody*> bodies;
 	std::vector<GBStaticGeometry*> staticGeometry;
+	std::vector<GBGrid*> grids;
 };
+
+enum GBGridType
+{
+	NORMAL = 0,
+	TERRAIN = 1
+};
+
 struct GBGrid
 {
 	GBVector3 origin;       // Origin point of the grid
@@ -53,6 +63,8 @@ struct GBGrid
 	int index = 0;
 	std::vector<GBCell*> occupiedCells;
 	std::vector<GBStaticGeometry*> staticGeometry;
+	std::vector<GBGrid*> grids;
+	GBGridType type = GBGridType::NORMAL;
 
 	//std::vector<GBCollider> colliders;
 	// ----------------------------
@@ -66,6 +78,7 @@ struct GBGrid
 		, cellsY(20)
 		, cellsZ(10)
 		, index(0)
+		, type(GBGridType::NORMAL)
 	{
 		cells.reserve(cellsX * cellsY * cellsZ);
 
@@ -89,8 +102,8 @@ struct GBGrid
 	}
 
 
-	GBGrid(const GBVector3& originPoint, float cellSize, int numCellsX, int numCellsY, int numCellsZ, int index)
-		: origin(originPoint), cellSize(cellSize), cellsX(numCellsX), cellsY(numCellsY), cellsZ(numCellsZ), index(index)
+	GBGrid(const GBVector3& originPoint, float cellSize, int numCellsX, int numCellsY, int numCellsZ, int index, GBGridType type = GBGridType::NORMAL)
+		: origin(originPoint), cellSize(cellSize), cellsX(numCellsX), cellsY(numCellsY), cellsZ(numCellsZ), index(index), type(type)
 	{
 		cells.reserve(cellsX * cellsY * cellsZ);
 		for (int x = 0; x < cellsX; ++x)
@@ -203,6 +216,11 @@ struct GBGrid
 		return GBAABB(center, halfExtents);
 	}
 
+	void updateAABB()
+	{
+		aabb = toAABB();
+	}
+
 	void insertBody(GBBody& body)
 	{
 		GBAABB sample = body.aabb;
@@ -292,6 +310,64 @@ struct GBGrid
 		auto it = std::find(staticGeometry.begin(), staticGeometry.end(), &geometry);
 		if (it != staticGeometry.end())
 			staticGeometry.erase(it);
+	}
+
+	void insertTerrainGrid(GBGrid& grid)
+	{
+		if (grid.type == GBGridType::TERRAIN)
+		{
+			GBAABB sampleAABB = grid.aabb;
+			std::vector<GBCell*> overlappingCells;
+			sampleGrid(sampleAABB, overlappingCells);
+			for (GBCell* cell : overlappingCells)
+			{
+				// Grids inside grids are just for terrains for now, so the cells need to know that a grid is contained,
+				// But the grid does not need to know where all the containing cells are...
+				// Rather than using occupied cells for voxels we use them here to track the occupied cells
+				cell->grids.push_back(&grid);
+				grid.occupiedCells.push_back(cell);
+			}
+			if (std::find(grids.begin(), grids.end(), &grid) == grids.end())
+				grids.push_back(&grid);
+		}
+	}
+
+	void sampleTerrainGrids(const GBAABB& sampleAABB, std::vector<GBGrid*>& sampledGrids)
+	{
+		std::vector<GBCell*> overlappingCells;
+		sampleGrid(sampleAABB, overlappingCells); // now we get pointers
+		for (GBCell* cell : overlappingCells)
+		{
+			for (GBGrid* pGrid : cell->grids)
+			{
+				if (pGrid->type == GBGridType::TERRAIN)
+				{
+					if (std::find(sampledGrids.begin(), sampledGrids.end(), pGrid) == sampledGrids.end())
+					{
+						sampledGrids.push_back(pGrid);
+					}
+				}
+			}
+		}
+	}
+
+	void removeTerrainGrid(GBGrid& grid)
+	{
+		if (grid.type == GBGridType::TERRAIN)
+		{
+			for (GBCell* cell : grid.occupiedCells)
+			{
+				// Remove all occurrences of the terrain pointer in this cell
+				cell->grids.erase(
+					std::remove(cell->grids.begin(), cell->grids.end(), (GBGrid*)&grid),
+					cell->grids.end()
+				);
+			}
+			grid.occupiedCells.clear();
+			auto it = std::find(grids.begin(), grids.end(), &grid);
+			if (it != grids.end())
+				grids.erase(it);
+		}
 	}
 
 	bool raycast(
@@ -660,6 +736,33 @@ struct GBGridMap
 	}
 
 
+	void sampleTerrainGrids(GBAABB sampleAABB, std::vector<GBGrid*>& outGrids)
+	{
+		std::vector<GBGrid*> occupiedGrids;
+		sampleMap(sampleAABB, occupiedGrids);
+		for (GBGrid* pGrid : occupiedGrids)
+		{
+			pGrid->sampleTerrainGrids(sampleAABB, outGrids);
+		}
+	}
+
+	void sampleTerrainGridStaticGeometry(GBAABB sampleAABB, std::vector<GBStaticGeometry*>& outGeometries)
+	{
+		std::vector<GBGrid*> occupiedGrids;
+		sampleMap(sampleAABB, occupiedGrids);
+		std::vector<GBGrid*> terrainGrids;
+		for (GBGrid* pGrid : occupiedGrids)
+		{
+			pGrid->sampleTerrainGrids(sampleAABB, terrainGrids);
+		}
+
+		for (GBGrid* terrainGrid : terrainGrids)
+		{
+			terrainGrid->sampleStaticGeometry(sampleAABB, outGeometries);
+		}
+	}
+
+
 	void insertBody(GBBody& body)
 	{
 		std::vector<GBVector3> indices = sampleGrid3DIndices(body.aabb);
@@ -696,6 +799,19 @@ struct GBGridMap
 		for (GBGrid* pGrid : occupiedGrids)
 		{
 			pGrid->insertStaticGeometry(sample, geometry);
+		}
+	}
+
+	void insertTerrainGrid(GBGrid& grid)
+	{
+		if (grid.type == GBGridType::TERRAIN)
+		{
+			std::vector<GBGrid*> occupiedGrids;
+			sampleMap(grid.aabb, occupiedGrids, true);
+			for (GBGrid* pGrid : occupiedGrids)
+			{
+				pGrid->insertTerrainGrid(grid);
+			}
 		}
 	}
 
@@ -746,7 +862,7 @@ struct GBGridMap
 		const GBVector3& rayOrigin,
 		const GBVector3& rayDir,
 		GBContact& outContact,
-		float maxDistance)
+		float maxDistance = FLT_MAX)
 	{
 		// First, check if ray hits the whole map AABB
 		GBAABB mapAABB = toAABB();

@@ -342,6 +342,11 @@ struct GBAABB
 		return aabb;
 	}
 
+	void grow(float growth = 0.05f)
+	{
+		halfExtents += {growth, growth, growth};
+	}
+
 	GBVector3 high() const { return center + halfExtents; }
 	GBVector3 low() const { return center - halfExtents; }
 

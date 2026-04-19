@@ -413,68 +413,138 @@ struct GBManifoldGeneration
 		GBContact& outContact,
 		GBVector3* pClosestOnEdge = nullptr)
 	{
-		GBEdge connection;
-
 		GBVector3 lower, upper, up;
 		capsule.extractSphereLocations(upper, lower, &up);
 
-		GBEdge capEdge = GBEdge(lower, upper);
+		GBEdge capEdge(lower, upper);
 
-		GBContact c;
-		GBEdge outEdge;
 		float s, t;
-		if (GBEdge::closestEdgeBetween(capEdge, edge, outEdge, false, &s, &t))
-		{
-			if (pClosestOnEdge)
-			{
-				edge.isPointOnEdge(outEdge.b, pClosestOnEdge);
-			}
-			//drawEdge(GetWorld(), outEdge, 5, FColor::Red);
-			if (s <= 0.0f)
-			{
-				// Closest to lower sphere
-				if (GBManifoldGeneration::GBContactSphereEdge(lower, capsule.radius, edge, outContact))
-				{
-					return !capEdge.isPointOnEdge(outContact.position);
-				}
-			}
-			else if (s >= 1.0f)
-			{
-				//Closest to upper sphere
-				if (GBManifoldGeneration::GBContactSphereEdge(upper, capsule.radius, edge, outContact))
-				{
-					return !capEdge.isPointOnEdge(outContact.position);
-				}
-			}
-			else
-			{
-				// Closest point is on cylinder portion
-				GBVector3 capsulePoint = outEdge.a; // closest point on capsule axis
-				GBVector3 edgePoint = outEdge.b; // closest point on edge
-				GBVector3 offset = edgePoint - capsulePoint;
-				float distSqr = offset.lengthSquared();
+		GBVector3 capsulePoint;
+		GBVector3 edgePoint;
 
-				GBVector3 clampedPoint;
-				if (!edge.isPointOnEdge(outEdge.b, &clampedPoint))
-				{
-					return GBContactCapsulePoint(capsule, clampedPoint, outContact);
-				}
-				else if (distSqr <= capsule.radius * capsule.radius)
-				{
-					float dist = sqrtf(distSqr);
+		// Robust segment–segment solve (handles parallel internally)
+		GBEdge::closestPointsSegmentSegment(
+			capEdge,
+			edge,
+			s, t,
+			capsulePoint,
+			edgePoint
+		);
 
-					//outContact.position = capsulePoint + offset * (capsule.radius / dist);
-					outContact.position = outEdge.b;
-					outContact.normal = -offset.normalized();  // flip normal so capsule is incident
-					outContact.penetrationDepth = GBAbs(capsule.radius - dist);
+		if (pClosestOnEdge)
+			*pClosestOnEdge = edgePoint;
 
-					return true;
-				}
-			}
-		}
+		GBVector3 offset = capsulePoint - edgePoint;
+		float distSq = offset.lengthSquared();
+		float radiusSq = capsule.radius * capsule.radius;
 
-		return false;
+		if (distSq > radiusSq)
+			return false;
+
+		const float EPS = 1e-6f;
+		float dist = sqrtf(GBMax(distSq, EPS));
+
+		// Normal always from edge → capsule
+		GBVector3 normal = offset / dist;
+
+		outContact.normal = normal;
+		outContact.position = edgePoint;
+		outContact.penetrationDepth = capsule.radius - dist;
+
+		return true;
 	}
+
+
+	//static bool GBContactCapsuleEdge(
+	//	const GBCapsuleCollider& capsule,
+	//	const GBEdge& edge,
+	//	GBContact& outContact,
+	//	GBVector3* pClosestOnEdge = nullptr)
+	//{
+	//	GBEdge connection;
+
+	//	GBVector3 lower, upper, up;
+	//	capsule.extractSphereLocations(upper, lower, &up);
+
+	//	GBEdge capEdge = GBEdge(lower, upper);
+
+	//	GBContact c;
+	//	GBEdge outEdge;
+	//	float s, t;
+	//	if (GBEdge::closestEdgeBetween(capEdge, edge, outEdge, false, &s, &t))
+	//	{
+	//		if (pClosestOnEdge)
+	//		{
+	//			edge.isPointOnEdge(outEdge.b, pClosestOnEdge);
+	//		}
+	//		//drawEdge(GetWorld(), outEdge, 5, FColor::Red);
+	//		if (s <= 0.0f)
+	//		{
+	//			// Closest to lower sphere
+	//			if (GBManifoldGeneration::GBContactSphereEdge(lower, capsule.radius, edge, outContact))
+	//			{
+	//				return !capEdge.isPointOnEdge(outContact.position);
+	//			}
+	//		}
+	//		else if (s >= 1.0f)
+	//		{
+	//			//Closest to upper sphere
+	//			if (GBManifoldGeneration::GBContactSphereEdge(upper, capsule.radius, edge, outContact))
+	//			{
+	//				return !capEdge.isPointOnEdge(outContact.position);
+	//			}
+	//		}
+	//		else
+	//		{
+	//			// Closest point is on cylinder portion
+	//			GBVector3 capsulePoint = outEdge.a; // closest point on capsule axis
+	//			GBVector3 edgePoint = outEdge.b; // closest point on edge
+	//			GBVector3 offset = edgePoint - capsulePoint;
+	//			float distSqr = offset.lengthSquared();
+
+	//			GBVector3 clampedPoint;
+	//			if (!edge.isPointOnEdge(outEdge.b, &clampedPoint))
+	//			{
+	//				return GBContactCapsulePoint(capsule, clampedPoint, outContact);
+	//			}
+	//			else if (distSqr <= capsule.radius * capsule.radius)
+	//			{
+	//				float dist = sqrtf(distSqr);
+
+	//				//outContact.position = capsulePoint + offset * (capsule.radius / dist);
+	//				outContact.position = outEdge.b;
+	//				outContact.normal = -offset.normalized();  // flip normal so capsule is incident
+	//				outContact.penetrationDepth = GBAbs(capsule.radius - dist);
+
+	//				return true;
+	//			}
+	//		}
+	//	}
+	//	else
+	//	{
+	//		// parallel case: treat as cylinder-edge contact
+
+	//		GBVector3 capsuleMid = (upper + lower) * 0.5f;
+	//		GBVector3 edgePoint = edge.closestPointOnLine(capsuleMid);
+	//		GBVector3 axisPoint = capEdge.closestPointOnLine(edgePoint);
+
+	//		GBVector3 offset = axisPoint - edgePoint;
+	//		float dist2 = offset.lengthSquared();
+
+	//		if (dist2 <= capsule.radius * capsule.radius)
+	//		{
+	//			float dist = sqrtf(dist2);
+
+	//			outContact.position = edgePoint;
+	//			outContact.normal = offset.normalized();
+	//			outContact.penetrationDepth = capsule.radius - dist;
+	//			return true;
+	//		}
+
+	//	}
+
+	//	return false;
+	//}
 
 	static bool GBManifoldCapsuleCapsule(
 		const GBCapsuleCollider& reference,
@@ -614,52 +684,50 @@ struct GBManifoldGeneration
 				}
 			}
 		}
-		GBEdge edges[3];
-		triangle.extractEdges(edges);
-		GBVector3 center = triangle.center();
-		bool useEdge = false;
-		for (int i = 0; i < 3; i++)
+
+		if (planeMan.numContacts == 0)
 		{
-			GBContact c;
-			if (GBContactCapsuleEdge(capsule, edges[i], c))
+
+			GBEdge edges[3];
+			triangle.extractEdges(edges);
+			GBVector3 center = triangle.center();
+			bool useEdge = false;
+			for (int i = 0; i < 3; i++)
 			{
-				//Need to prune contacts that point inward...
-				GBVector3 out = GBCross(edges[i].getAOutDirection(), normal);
-				if (GBDot(out, center - edges[i].a) > 0)
-					out = -out;
-
-				if (GBDot(c.normal, out) < 0.0f)
-					c.normal = -c.normal;
-
-				GBVector3 dp = capsule.transform.position - c.position;
-				if (GBDot(dp, c.normal) < 0)
-					c.normal = -c.normal;
-
-
-				edgeMan.addContact(c);
-
-				if (planeMan.numContacts > 0)
+				GBContact c;
+				if (GBContactCapsuleEdge(capsule, edges[i], c))
 				{
-					if (GBAbs(planeMan.contacts[0].penetrationDepth) < GBAbs(c.penetrationDepth))
-						useEdge = true;
+					//Need to prune contacts that point inward...
+					GBVector3 out = GBCross(edges[i].getAOutDirection(), normal);
+					if (GBDot(out, center - edges[i].a) > 0)
+						out = -out;
+
+					if (GBDot(c.normal, out) < 0.0f)
+						c.normal = -c.normal;
+
+					GBVector3 dp = capsule.transform.position - c.position;
+					if (GBDot(dp, c.normal) < 0)
+						c.normal = -c.normal;
+
+
+					edgeMan.addContact(c);
+
+					if (planeMan.numContacts > 0)
+					{
+						if (GBAbs(planeMan.contacts[0].penetrationDepth) < GBAbs(c.penetrationDepth))
+							useEdge = true;
+					}
 				}
 			}
 		}
 
 		if (planeMan.numContacts > 0)
 		{
-			if (useEdge)
-			{
-				outManifold.useNormal(edgeMan.contacts[0]);
-				outManifold.combine(edgeMan);
-			}
-			else
-			{
-				outManifold.useNormal(planeMan.contacts[0]);
-				outManifold.combine(planeMan);
-			}
+
+			outManifold.useNormal(planeMan.contacts[0]);
+			outManifold.combine(planeMan);
 		}
-		else if(edgeMan.numContacts > 0)
+		else if (edgeMan.numContacts > 0)
 		{
 			outManifold.useNormal(edgeMan.contacts[0]);
 			outManifold.combine(edgeMan);
@@ -698,56 +766,55 @@ struct GBManifoldGeneration
 				}
 			}
 		}
-		GBEdge edges[4];
-		quad.extractEdges(edges);
-		GBVector3 center = quad.position;
-		bool useEdge = false;
-		for (int i = 0; i < 4; i++)
+
+		if (planeMan.numContacts == 0)
 		{
-			GBContact c;
-			if (GBContactCapsuleEdge(capsule, edges[i], c))
+
+			GBEdge edges[4];
+			quad.extractEdges(edges);
+			GBVector3 center = quad.position;
+			bool useEdge = false;
+			for (int i = 0; i < 4; i++)
 			{
-				//Need to prune contacts that point inward...
-				GBVector3 out = GBCross(edges[i].getAOutDirection(), normal);
-				if (GBDot(out, center - edges[i].a) > 0)
-					out = -out;
-
-				if (GBDot(c.normal, out) < 0.0f)
-					c.normal = -c.normal;
-
-				GBVector3 dp = capsule.transform.position - c.position;
-				if (GBDot(dp, c.normal) < 0)
-					c.normal = -c.normal;
-
-				edgeMan.addContact(c);
-
-
-				if (planeMan.numContacts > 0)
+				GBContact c;
+				if (GBContactCapsuleEdge(capsule, edges[i], c))
 				{
-					if (GBAbs(planeMan.contacts[0].penetrationDepth) < GBAbs(c.penetrationDepth))
-						useEdge = true;
+					//Need to prune contacts that point inward...
+					GBVector3 out = GBCross(edges[i].getAOutDirection(), normal);
+					if (GBDot(out, center - edges[i].a) > 0)
+						out = -out;
+
+					if (GBDot(c.normal, out) < 0.0f)
+						c.normal = -c.normal;
+
+					GBVector3 dp = capsule.transform.position - c.position;
+					if (GBDot(dp, c.normal) < 0)
+						c.normal = -c.normal;
+
+					edgeMan.addContact(c);
+
+
+					if (planeMan.numContacts > 0)
+					{
+						if (GBAbs(planeMan.contacts[0].penetrationDepth) < GBAbs(c.penetrationDepth))
+							useEdge = true;
+					}
 				}
 			}
 		}
 
 		if (planeMan.numContacts > 0)
 		{
-			if (useEdge)
-			{
-				outManifold.useNormal(edgeMan.contacts[0]);
-				outManifold.combine(edgeMan);
-			}
-			else
-			{
-				outManifold.useNormal(planeMan.contacts[0]);
-				outManifold.combine(planeMan);
-			}
+
+			outManifold.useNormal(planeMan.contacts[0]);
+			outManifold.combine(planeMan);
 		}
 		else if (edgeMan.numContacts > 0)
 		{
 			outManifold.useNormal(edgeMan.contacts[0]);
 			outManifold.combine(edgeMan);
 		}
+
 
 		outManifold.pruneWithNormal(1e-4);
 		outManifold.correctPenetrations();
