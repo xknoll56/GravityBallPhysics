@@ -81,7 +81,7 @@ struct GBVector3 {
     void truncate()
     {
         x = (int)x;
-        y = (int)y; 
+        y = (int)y;
         z = (int)z;
     }
 
@@ -149,11 +149,11 @@ inline GBVector3 GBAlign(const GBVector3& aligned, const GBVector3& v)
 
 inline GBVector3 GBFixNormal(const GBVector3& normal, const GBVector3 pointOnPlane, const GBVector3 position)
 {
-	GBVector3 deltaPosition = pointOnPlane - position;
-    if(GBDot(normal, deltaPosition) > 0.0f) // angle > 90 degrees
+    GBVector3 deltaPosition = pointOnPlane - position;
+    if (GBDot(normal, deltaPosition) > 0.0f) // angle > 90 degrees
     {
         return -normal; // reverse
-	}
+    }
     return normal;
 }
 
@@ -354,6 +354,30 @@ struct GBMatrix {
         return mat;
     }
 
+    static GBMatrix perspectiveDX(float aspectRatio, float fovYRadians, float zNear, float zFar)
+    {
+        // float yScale = 1 / tanf(0.5f * fovYRadians); 
+        // NOTE: 1/tan(X) = tan(90degs - X), so we can avoid a divide
+        // float yScale = tanf((0.5f * M_PI) - (0.5f * fovYRadians));
+        float yScale = tanf(0.5f * ((float)GB_PI - fovYRadians));
+        float xScale = yScale / aspectRatio;
+        float zRangeInverse = 1.f / (zNear - zFar);
+        float zScale = zFar * zRangeInverse;
+        float zTranslation = zFar * zNear * zRangeInverse;
+
+        GBMatrix result = {};
+
+        result.m[0][0] = xScale;
+        result.m[1][1] = yScale;
+        result.m[2][2] = zScale;
+        result.m[2][3] = zTranslation;
+        result.m[3][2] = -1.0f;
+        result.m[3][3] = 0.0f;
+
+        return result;
+    }
+
+
     static GBMatrix orthographic(float left, float right, float bottom, float top, float zNear, float zFar) {
         GBMatrix mat{};
         mat.m[0][0] = 2.0f / (right - left); mat.m[1][1] = 2.0f / (top - bottom);
@@ -382,7 +406,34 @@ struct GBMatrix {
         return mat;
     }
 
+
+    GBMatrix transposed() const {
+        GBMatrix r;
+
+        r.m[0][0] = m[0][0]; r.m[0][1] = m[1][0]; r.m[0][2] = m[2][0]; r.m[0][3] = m[3][0];
+        r.m[1][0] = m[0][1]; r.m[1][1] = m[1][1]; r.m[1][2] = m[2][1]; r.m[1][3] = m[3][1];
+        r.m[2][0] = m[0][2]; r.m[2][1] = m[1][2]; r.m[2][2] = m[2][2]; r.m[2][3] = m[3][2];
+        r.m[3][0] = m[0][3]; r.m[3][1] = m[1][3]; r.m[3][2] = m[2][3]; r.m[3][3] = m[3][3];
+
+        return r;
+    }
+
+    GBMatrix(
+        float m00, float m01, float m02, float m03,
+        float m10, float m11, float m12, float m13,
+        float m20, float m21, float m22, float m23,
+        float m30, float m31, float m32, float m33)
+    {
+        m[0][0] = m00; m[0][1] = m01; m[0][2] = m02; m[0][3] = m03;
+        m[1][0] = m10; m[1][1] = m11; m[1][2] = m12; m[1][3] = m13;
+        m[2][0] = m20; m[2][1] = m21; m[2][2] = m22; m[2][3] = m23;
+        m[3][0] = m30; m[3][1] = m31; m[3][2] = m32; m[3][3] = m33;
+    }
 };
+
+inline float degreesToRadians(float degs) {
+    return degs * ((float)GB_PI / 180.0f);
+}
 
 struct GBMatrix3
 {

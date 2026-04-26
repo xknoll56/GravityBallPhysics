@@ -1149,10 +1149,38 @@ struct GBManifoldGeneration
 		if (GBContactSphereBox(sphere, box, c))
 		{
 			outManifold.addContact(c);
+			if (GBDot(outManifold.normal, sphere.transform.position - box.transform.position) > 0.0f)
+				outManifold.normal = -outManifold.normal;
 			outManifold.pReference = box.pBody;
 			outManifold.pIncident = sphere.pBody;
 			outManifold.separation = c.penetrationDepth;
 			outManifold.normal = c.normal;
+			return true;
+		}
+		return false;
+	}
+
+	static bool GBManifoldSphereBoxPatch(
+		const GBSphereCollider& sphere,
+		const GBBoxCollider& box,
+		GBManifold& outManifold)
+	{
+		GBManifold testManifold;
+		if (GBManifoldSphereBox(sphere, box, testManifold))
+		{
+			GBVector3 right, up;
+			right = GBNormalize(GBCross(testManifold.normal, { 1,0,0 }));
+			up = GBNormalize(GBCross(right, testManifold.normal));
+			outManifold.useNormal(testManifold);
+			outManifold.addContact(GBContact(testManifold.contacts[0].position + testManifold.separation*right + testManifold.separation*up, testManifold.contacts[0].normal, 
+				testManifold.contacts[0].penetrationDepth));
+			outManifold.addContact(GBContact(testManifold.contacts[0].position - testManifold.separation * right + testManifold.separation * up, testManifold.contacts[0].normal,
+				testManifold.contacts[0].penetrationDepth));
+			outManifold.addContact(GBContact(testManifold.contacts[0].position - testManifold.separation * right - testManifold.separation * up, testManifold.contacts[0].normal,
+				testManifold.contacts[0].penetrationDepth));
+			outManifold.addContact(GBContact(testManifold.contacts[0].position + testManifold.separation * right - testManifold.separation * up, testManifold.contacts[0].normal,
+				testManifold.contacts[0].penetrationDepth));
+
 			return true;
 		}
 		return false;
