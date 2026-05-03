@@ -1,0 +1,1 @@
+The engine uses an iterative sequential impulse solver to resolve contacts as velocity constraints, with island-based clustering to isolate and stabilize groups of interacting bodies. This provides efficient, stable rigid body simulation with constraint-like behavior without requiring a full global solver.

@@ -4,6 +4,8 @@
 #include <typeinfo>
 #include <algorithm>
 #include <cstdint>
+#include <functional>
+#include <unordered_map>
 
 struct GBTerrain
 {
@@ -15,6 +17,7 @@ struct GBTerrain
 	std::vector<std::vector<GBTriangle*>> triangles;
 	GBGrid* pGrid;
 	float spacing = 1.0f;
+	
 
 	GBTerrain()
 	{
@@ -37,6 +40,9 @@ struct GBSimulation
 	std::vector< std::unique_ptr<GBTerrain>> terrains;
 	GBBoxCollider* pStaticBox;
 	uint32_t idCount;
+	std::unordered_map<uint32_t, std::vector<std::function<void(const GBManifold& manifold, GBBody* pOther)>>> enterListeners;
+	std::unordered_map<uint32_t, std::vector<std::function<void(const GBManifold& manifold, GBBody* pOther)>>> stayListeners;
+	std::unordered_map<uint32_t, std::vector<std::function<void(GBBody* pOther)>>> exitListeners;
 
 	//: gridMap(GBGridMap(GBVector3(-50,-50, -25), 1.0f, 100, 100, 50, 1, 1, 1))
 	GBSimulation()
@@ -46,6 +52,47 @@ struct GBSimulation
 		setupStaticBox();
 	}
 
+	void dispatchEnterListeners(uint32_t id, const GBManifold& manifold, GBBody* pOther)
+	{
+		auto it = enterListeners.find(id);
+		if (it == enterListeners.end()) return;
+
+		for (auto& fn : it->second)
+			fn(manifold, pOther);
+	}
+
+	void dispatchStayListeners(uint32_t id, const GBManifold& manifold, GBBody* pOther)
+	{
+		auto it = stayListeners.find(id);
+		if (it == stayListeners.end()) return;
+
+		for (auto& fn : it->second)
+			fn(manifold, pOther);
+	}
+
+	void dispatchExitListeners(uint32_t id,  GBBody* pOther)
+	{
+		auto it = exitListeners.find(id);
+		if (it == exitListeners.end()) return;
+
+		for (auto& fn : it->second)
+			fn(pOther);
+	}
+
+	void addEnterListener(uint32_t id, std::function<void(const GBManifold&, GBBody*)> fn)
+	{
+		enterListeners[id].push_back(std::move(fn));
+	}
+
+	void addStayListener(uint32_t id, std::function<void(const GBManifold&, GBBody*)> fn)
+	{
+		stayListeners[id].push_back(std::move(fn));
+	}
+
+	void addExitListener(uint32_t id, std::function<void(GBBody*)> fn)
+	{
+		exitListeners[id].push_back(std::move(fn));
+	}
 
 	void setupStaticBox()
 	{
@@ -353,7 +400,7 @@ struct GBSimulation
 		gridMap.moveBody(body);
 	}
 
-	int solverIterations = 10;   // 6–12 typical
+	int solverIterations = 6 ;   // 6–12 typical
 	static constexpr float maxDeltaTime = 1.0f / 60.0f;
 	float timeScale = 1.0f;
 
@@ -401,9 +448,13 @@ struct GBSimulation
 				//else if(m.pIncident->awakeTimer >0.5)
 				//	solveStaticManifold(m, *m.pIncident, dt, true);
 				if (upness > 0.95)
+				{
 					solveStaticManifold(m, *m.pIncident);
+				}
 				else if (m.pIncident->awakeTimer > 0.5)
+				{
 					solveStaticManifold(m, *m.pIncident);
+				}
 				return;
 			}
 		}
@@ -462,33 +513,45 @@ struct GBSimulation
 				B.angularVelocity += GBCross(rB, impulse) * B.invInertia * bModifier;
 
 			// --- FRICTION ---
-			GBVector3 vRelT = vRel - n * GBDot(vRel, n);
-			float tLen = vRelT.length();
-			if (tLen > 0.0001f)
+			if (GBDot(n, GBVector3::up()) > 0.05f)
 			{
-				GBVector3 t = vRelT / tLen;
+				GBVector3 vRelT = vRel - n * GBDot(vRel, n);
+				float tLen = vRelT.length();
+				if (tLen > 0.0001f)
+				{
+					GBVector3 t = vRelT / tLen;
 
-				float jt = GBDot(vRel, t);
-				jt /= invMassSum;
+					float jt = GBDot(vRel, t);
+					jt /= invMassSum;
 
-				const float mu = 0.25f; // friction coefficient
-				float maxFriction = j * mu;
+					const float mu = 0.25f; // friction coefficient
+					float maxFriction = j * mu;
 
-				jt = GBClamp(jt, -maxFriction, maxFriction);
+					jt = GBClamp(jt, -maxFriction, maxFriction);
 
-				GBVector3 fImpulse = t * jt;
+					GBVector3 fImpulse = t * jt;
 
-				if (!ignoreA)
-					A.velocity -= fImpulse * A.invMass;
-				if (!ignoreB)
-					B.velocity += fImpulse * B.invMass;
+					if (!ignoreA)
+						A.velocity -= fImpulse * A.invMass;
+					if (!ignoreB)
+						B.velocity += fImpulse * B.invMass;
 
-				if (!ignoreA)
-					A.angularVelocity -= GBCross(rA, fImpulse) * A.invInertia;
-				if (!ignoreB)
-					B.angularVelocity += GBCross(rB, fImpulse) * B.invInertia;
+					if (!ignoreA)
+						A.angularVelocity -= GBCross(rA, fImpulse) * A.invInertia;
+					if (!ignoreB)
+						B.angularVelocity += GBCross(rB, fImpulse) * B.invInertia;
+				}
 			}
 		}
+
+		//// Linear damping
+		//A.velocity *= 0.999f;
+		//B.velocity *= 0.999f;
+
+		//// Angular damping
+		//A.angularVelocity *= 0.999f;
+		//B.angularVelocity *= 0.999f;
+
 		//if (GBDot(A.velocity, B.velocity) < 0)
 		//{
 		//	A.resetContactConstraints();
@@ -585,7 +648,7 @@ struct GBSimulation
 			return;
 		}
 
-		const float restitution = 0.25f;
+		const float restitution = 0.1f;
 
 		for (int i = 0; i < manifold.numContacts; i++)
 		{
@@ -1017,13 +1080,13 @@ struct GBSimulation
 		return false;
 	}
 
+
 	enum BroadPhaseType
 	{
 		NONE = 0,
 		UNIFORM_GRID = 1
 	};
 
-	//BroadPhaseType broadPhaseType = BroadPhaseType::NONE;
 	BroadPhaseType broadPhaseType = BroadPhaseType::UNIFORM_GRID;
 
 	void extractBroadPhaseBodies(int bodyIndex, std::vector<GBBody*>& bodies, std::vector<GBBody*>& outBodies)
@@ -1110,7 +1173,6 @@ struct GBSimulation
 								pBox->pBody->frameManifold.combine(manifold);
 								solveDynamicPenetration(manifold, *manifold.pIncident);
 								solveStaticManifold(manifold, *manifold.pIncident);
-								handleConstraintAction(manifold);
 							}
 						}
 					}
@@ -1204,7 +1266,6 @@ struct GBSimulation
 							{
 								if (manifold.numContacts > 0)
 								{
-									//combinedManifold.useNormal(manifold);
 									combinedManifold.normal += manifold.normal;
 									numManifolds++;
 									combinedManifold.combine(manifold);
@@ -1229,9 +1290,7 @@ struct GBSimulation
 				combinedManifold.clampSeparation(slop);
 				pBox->pBody->frameManifold.combine(combinedManifold);
 				solveDynamicPenetration(combinedManifold, *combinedManifold.pIncident);
-				//solveStaticManifold(combinedManifold, *combinedManifold.pIncident, deltaTime);
 				solveStaticManifold(combinedManifold, *combinedManifold.pIncident);
-				handleConstraintAction(combinedManifold);
 			}
 		}
 		else if (pCapsule)
@@ -1247,11 +1306,42 @@ struct GBSimulation
 		}
 	}
 
+	struct BodyPair
+	{
+		GBBody* a;
+		GBBody* b;
+
+		BodyPair(GBBody* x, GBBody* y)
+		{
+			if (x < y) { a = x; b = y; }
+			else { a = y; b = x; }
+		}
+
+		bool operator==(const BodyPair& other) const
+		{
+			return a == other.a && b == other.b;
+		}
+	};
+
+	struct BodyPairHash
+	{
+		size_t operator()(const BodyPair& p) const
+		{
+			return std::hash<GBBody*>()(p.a) ^ (std::hash<GBBody*>()(p.b) << 1);
+		}
+	};
+
+	bool containsPair(const std::unordered_map<BodyPair, GBManifold, BodyPairHash>& map, const GBBody* a, const GBBody* b)
+	{
+		return map.find(BodyPair((GBBody*)a, (GBBody*)b)) != map.end();
+	}
+
 
 	GBVector3 gravity = GBVector3(0, 0, -10.0f);
 	uint64_t frame = 0;
 	static constexpr float maxPenetration = 0.1f;
 	const float slop = 0.05f;
+	std::unordered_map<BodyPair, GBManifold, BodyPairHash> pairManifolds;
 	// ------------------------------------------------------------
 	// SIMULATION STEP
 	// ------------------------------------------------------------
@@ -1272,6 +1362,7 @@ struct GBSimulation
 		}
 
 		frameStaticManifolds.clear();
+		std::unordered_map<BodyPair, GBManifold, BodyPairHash> curPairManifolds;
 
 		for (int iter = 0; iter < solverIterations; iter++)
 		{
@@ -1302,20 +1393,20 @@ struct GBSimulation
 					body->angularVelocity = { 0,0,0 };
 				}
 
-				if (!body->isKinematic || body->isPlayerController)
-					body->addForce(gravity * body->mass); // gravity
+				if (!body->isSleeping && (!body->isKinematic || body->isPlayerController))
+					body->addForce(gravity * body->mass);
 				body->update(interDeltaTime);
 				body->clearContactedBodies();
 			}
 
 
 			std::vector<GBBody*> sortedBodies = sortBodiesByHeight(rigidBodies);
-			std::vector<std::pair<GBBody*, GBBody*>> handledPairs;
+			std::vector<std::pair<GBBody*, GBBody*>> dynamicPairs;
 			// Do all the boxes now
 			for (int i = 0; i < sortedBodies.size(); i++)
 			{
 				GBBody* bodyA = sortedBodies[i];
-				if (bodyA->ignoreSample || bodyA->isStatic || bodyA->isSleeping)
+				if (bodyA->ignoreSample || bodyA->isStatic || bodyA->isSleeping || bodyA->isTrigger)
 					continue;
 				bool didColide = false;
 				std::vector<GBBody*> checkBodies;
@@ -1328,16 +1419,19 @@ struct GBSimulation
 					std::pair<GBBody*, GBBody*> bodyPair;
 					bodyPair.first = bodyA;
 					bodyPair.second = bodyB;
-					if (!containsPair(handledPairs, bodyA, bodyB))
-						handledPairs.push_back(bodyPair);
+					if (!containsPair(dynamicPairs, bodyA, bodyB))
+						dynamicPairs.push_back(bodyPair);
 					else
 						continue;
-
 					//if (bodyA->isSleeping || bodyB->isSleeping) continue;
 
 
 					if (!bodyA->isStatic && !bodyB->isStatic)
 					{
+						// Skip triggers and handle in static solver
+						if (bodyB->isTrigger)
+							continue;
+
 						GBSATCollisionData data;
 						GBManifold manifold;
 						SolverType type;
@@ -1345,6 +1439,9 @@ struct GBSimulation
 						{
 							if (manifold.numContacts == 0)
 								continue;
+
+							curPairManifolds[BodyPair(bodyA, bodyB)] = manifold;
+
 							switch (type)
 							{
 							case SPHERE_SPHERE:
@@ -1352,8 +1449,6 @@ struct GBSimulation
 								solveDynamicManifold(manifold, *manifold.pReference, *manifold.pIncident, interDeltaTime, true);
 								break;
 							case BOX_SPHERE:
-								//manifold.pIncident->transform.position += manifold.normal * manifold.separation;
-								//solveDynamicPenetration(manifold, *manifold.pIncident);
 								solveDynamicPenetrationEqually(manifold);
 								solveDynamicManifold(manifold,  *manifold.pIncident,*manifold.pReference, interDeltaTime, true);
 								break;
@@ -1361,13 +1456,11 @@ struct GBSimulation
 							{
 								if (!manifold.pReference->isStatic)
 									manifold.flipAndSwapIfContactOnTop(manifold.normal);
-								float clampedSep = GBClamp(manifold.separation, manifold.separation, slop);
-								manifold.pIncident->transform.position += manifold.normal * manifold.separation;
-								solveDynamicManifold(manifold, *bodyA, *bodyB, interDeltaTime, true);
+								solveDynamicPenetration(manifold, *manifold.pIncident);
+								solveDynamicManifold(manifold, *manifold.pIncident, *manifold.pReference, interDeltaTime, true);
 							}
 							break;
 							case CAPSULE_BOX:
-								//manifold.pIncident->transform.position += manifold.normal * manifold.separation;
 								solveDynamicPenetrationEqually(manifold);
 								solveDynamicManifold(manifold, *manifold.pReference, *manifold.pIncident, interDeltaTime, true);
 								break;
@@ -1397,11 +1490,11 @@ struct GBSimulation
 
 			}
 
-			handledPairs.clear();
+			std::vector<std::pair<GBBody*, GBBody*>> staticPairs;
 			for (int i = 0; i < sortedBodies.size(); i++)
 			{
 				GBBody* bodyA = sortedBodies[i];
-				if (bodyA->ignoreSample || bodyA->isSleeping)
+				if (bodyA->ignoreSample || bodyA->isSleeping || bodyA->isTrigger)
 					continue;
 				if (bodyA->isDynamic() || bodyA->isKinematic)
 					handleStaticGeometry(*bodyA, interDeltaTime);
@@ -1416,8 +1509,8 @@ struct GBSimulation
 					std::pair<GBBody*, GBBody*> bodyPair;
 					bodyPair.first = bodyA;
 					bodyPair.second = bodyB;
-					if (!containsPair(handledPairs, bodyA, bodyB))
-						handledPairs.push_back(bodyPair);
+					if (!containsPair(staticPairs, bodyA, bodyB))
+						staticPairs.push_back(bodyPair);
 					else
 						continue;
 					if (bodyA->isStatic && bodyB->isStatic)
@@ -1425,11 +1518,13 @@ struct GBSimulation
 
 					GBSATCollisionData data;
 					GBManifold manifold;
+					manifold.numContacts = 0;
 					SolverType type;
 					if (generateBodyManifold(bodyA, bodyB, data, manifold, type))
 					{
 						if (manifold.numContacts == 0)
 							continue;
+
 						GBBody* dynamicBody, * staticBody;
 						//if (bodyA->isStatic || bodyB->isStatic)
 						if (!bodyA->isDynamic() || !bodyB->isDynamic())
@@ -1447,11 +1542,19 @@ struct GBSimulation
 							dynamicBody->addStaticContact(staticBody);
 
 							bool wakeSleeping = false;
-							if (data.minOverlap > 0.005f)
+							static const float wakeThreshold = 0.055f;
+							if (data.minOverlap > wakeThreshold)
 								wakeSleeping = true;
-							staticBody->addDynamicContact(dynamicBody, wakeSleeping);
+							staticBody->addDynamicContact(dynamicBody, wakeSleeping, true);
 							if (manifold.numContacts > 0)
 							{
+
+								curPairManifolds[BodyPair(bodyA, bodyB)] = manifold;
+
+								// If B is a trigger, just add manifold for callback and don't resolve
+								if (bodyB->isTrigger)
+									continue;
+
 								switch (type)
 								{
 								case SPHERE_SPHERE:
@@ -1459,10 +1562,7 @@ struct GBSimulation
 									break;
 								case BOX_SPHERE:
 									solveDynamicPenetration(manifold, *manifold.pIncident, false);
-									//manifold.pIncident->transform.position += manifold.normal * manifold.separation;
 									solveStaticSphereManifold(manifold, *manifold.pIncident, interDeltaTime);
-									//solveStaticCapsuleManifold(manifold, *manifold.pIncident);
-									//solveDynamicManifold(manifold, *manifold.pReference, *manifold.pIncident, interDeltaTime, true);
 
 									break;
 								case BOX_BOX:
@@ -1471,10 +1571,7 @@ struct GBSimulation
 									if (!manifold.pIncident)
 										continue;
 									solveDynamicPenetration(manifold, *manifold.pIncident);
-									//solveStaticManifold(manifold, *manifold.pIncident, interDeltaTime);
 									solveStaticManifold(manifold, *manifold.pIncident);
-									if (manifold.pIncident->isDynamic())
-										handleConstraintAction(manifold);
 									break;
 								case CAPSULE_BOX:
 									solveDynamicPenetration(manifold, *manifold.pIncident);
@@ -1486,8 +1583,6 @@ struct GBSimulation
 										manifold.flipAndSwap();
 										solveStaticManifold(manifold, *manifold.pIncident);
 									}
-									if (manifold.pIncident->isDynamic())
-										handleConstraintAction(manifold);
 									break;
 								case CAPSULE_CAPSULE:
 									solveDynamicPenetration(manifold, *manifold.pIncident);
@@ -1515,20 +1610,13 @@ struct GBSimulation
 						}
 					}
 				}
-
 			}
+
 
 			for (auto& rb : rigidBodies)
 			{
 				GBBody* body = rb.get();
 
-				// Wake if no static attachments
-				//if (body->staticGeometries.size() == 0 && !body->hasStaticAttachment())
-				//{
-					//body->wakeIsland();
-					//body->resetContactConstraints();
-					//body->isGrounded = false;
-				//}
 				if (body->frameManifold.hasGroundedManifold)
 				{
 					body->isGroundedCount++;
@@ -1576,11 +1664,18 @@ struct GBSimulation
 					}
 				}
 
-				if (speed < GBBody::sleepThreshold && angSpeed < GBBody::sleepThreshold)
+				float sleepThresholdFactor = 1.1f;
+				if (!body->isKinematic && speed < GBBody::sleepThreshold* sleepThresholdFactor && angSpeed < GBBody::sleepThreshold * sleepThresholdFactor)
 				{
 					body->sleepTimer += interDeltaTime;
 
-					if (staticBelow && body->sleepTimer >= GBBody::sleepTime && body->frameManifold.canSleep(body->transform.position))
+					// Linear damping
+					body->velocity *= 0.98f;
+
+					// Angular damping
+					body->angularVelocity *= 0.98f;
+
+					if (staticBelow && body->sleepTimer >= GBBody::sleepTime)
 					{
 						body->isSleeping = true;
 						body->velocity = GBVector3::zero();
@@ -1597,6 +1692,34 @@ struct GBSimulation
 			}
 			frame++;
 		}
+
+		for (auto& [pair, manifold] : curPairManifolds)
+		{
+			auto it = pairManifolds.find(pair);
+
+			if (it == pairManifolds.end())
+			{
+				dispatchEnterListeners(pair.a->id, manifold, pair.b);
+				dispatchEnterListeners(pair.b->id, manifold, pair.a);
+			}
+			else
+			{
+				dispatchStayListeners(pair.a->id, manifold, pair.b);
+				dispatchStayListeners(pair.b->id, manifold, pair.a);
+			}
+		}
+
+		for (auto& [pair, manifold] : pairManifolds)
+		{
+			if (curPairManifolds.find(pair)==curPairManifolds.end())
+			{
+				dispatchExitListeners(pair.a->id, pair.b);
+				dispatchExitListeners(pair.b->id, pair.a);
+			}
+		}
+
+		pairManifolds = curPairManifolds;
+		curPairManifolds.clear();
 
 		for (auto& rb : rigidBodies)
 		{
@@ -1683,30 +1806,6 @@ struct GBSimulation
 		return generatedManifolds;
 	}
 
-	void handleConstraintAction(const GBManifold& manifold)
-	{
-		if (manifold.pIncident->constraintType == GBBody::ConstraintType::NONE || manifold.pIncident->isKinematic)
-		{
-			return;
-		}
-
-		GBVector3 r = manifold.contacts[0].position;
-		GBVector3 dir = GBCross(-manifold.normal, r.normalized()).normalized();
-		GBBody* pOther = manifold.pReference ? manifold.pReference : nullptr;
-
-		if (manifold.numContacts == 1)
-		{
-			manifold.pIncident->setConstraintPoint(manifold.contacts[0].position, pOther);
-		}
-		else if (manifold.numContacts == 2)
-		{
-			manifold.pIncident->setConstraintEdge(manifold.contacts[0].position, manifold.contacts[1].position, pOther);
-		}
-		else
-		{
-			manifold.pIncident->isSleeping = true;
-		}
-	}
 
 	const static int maxRecurseDepth = 5;
 	void solveDynamicPenetrationRecurse(const GBManifold& manifold, GBBody& root, std::unordered_set<GBBody*>& visited, bool propogate = true)
@@ -1781,194 +1880,3 @@ struct GBSimulation
 		}
 	}
 };
-
-
-// DYNAMIC SOLVER
-// 
-//for (int i = 0; i < sortedBodies.size(); i++)
-//{
-//	GBBody* bodyA = sortedBodies[i];
-//	if (bodyA->ignoreSample || bodyA->isStatic ||bodyA->isSleeping)
-//		continue;
-//	bool didColide = false;
-//	std::vector<GBBody*> checkBodies;
-//	extractBroadPhaseBodies(i, sortedBodies, checkBodies);
-//	for (int j = 0; j<checkBodies.size(); j++)
-//	{
-//		GBBody* bodyB = checkBodies[j];
-//		if (bodyA == bodyB || !bodyA->sharesLayer(*bodyB))
-//			continue;
-//		std::pair<GBBody*, GBBody*> bodyPair;
-//		bodyPair.first = bodyA;
-//		bodyPair.second = bodyB;
-//		if (!containsPair(handledPairs, bodyA, bodyB))
-//			handledPairs.push_back(bodyPair);
-//		else
-//			continue;
-
-//		//if (bodyA->isSleeping || bodyB->isSleeping) continue;
-
-//		//if (!bodyA->isStatic || !bodyB->isStatic)
-//		if (bodyA->isDynamic() || bodyB->isDynamic())
-//		{
-//			for (int k = 0; k < bodyA->colliders.size(); k++)
-//			{
-//				GBCollider* colA = bodyA->colliders[k];
-//				for (int l = 0; l < bodyB->colliders.size(); l++)
-//				{
-//					GBCollider* colB = bodyB->colliders[l];
-//					GBSATCollisionData data;
-//					GBManifold manifold;
-//					if (overlapTest(colA, colB, data, manifold))
-//					{
-//						if (manifold.numContacts == 0)
-//							generateManifold(colA, colB, data, manifold);
-//						if (manifold.numContacts == 0)
-//							continue;
-//							// Swap if incident is below
-//						if (manifold.pIncident->type != ColliderType::Sphere && !manifold.pReference->pBody->isStatic)
-//							manifold.flipAndSwapIfContactOnTop(manifold.normal);
-//							//manifold.flipAndSwapIfOnTop();
-//						bool isBallPhysics = manifold.pIncident->type == ColliderType::Sphere;
-//						if (!isBallPhysics)
-//						{
-//							float clampedSep = GBClamp(manifold.separation, manifold.separation, slop);
-//							manifold.pIncident->pBody->transform.position += manifold.normal * manifold.separation;
-//						}
-//						if (isBallPhysics)
-//						{
-//							if (manifold.pReference->type == ColliderType::Box)
-//							{
-//								bool boxDynamic = manifold.pReference->pBody->isDynamic();
-//								bool sphereDynamic = manifold.pIncident->pBody->isDynamic();
-//								if (boxDynamic && sphereDynamic)
-//								{
-//									manifold.pIncident->pBody->transform.position += manifold.normal * manifold.separation*0.5f;
-//									manifold.pReference->pBody->transform.position -= manifold.normal * manifold.separation*0.5f;
-//								}
-//								else if (boxDynamic)
-//								{
-//									manifold.pReference->pBody->transform.position -= manifold.normal * manifold.separation;
-//								}
-//								else
-//								{
-//									manifold.pIncident->pBody->transform.position += manifold.normal * manifold.separation;
-//								}
-
-//								//if(!manifold.pReference->pBody->isOnLayer(LAYER_STATIC_DYNAMIC_SPHERE))
-//									solveDynamicManifold(manifold, *manifold.pReference->pBody, *manifold.pIncident->pBody, interDeltaTime, !isBallPhysics);
-//							}
-//						}
-//						else
-//							solveDynamicManifold(manifold, *bodyA, *bodyB, interDeltaTime, !isBallPhysics);
-//						bodyA->addDynamicContact(bodyB);
-//						bodyB->addDynamicContact(bodyA);
-//						manifold.pIncident->pBody->frameManifold.combine(manifold);
-//						GBManifold refManifold = GBManifold::asReference(manifold);
-//						manifold.pReference->pBody->frameManifold.combine(refManifold);
-//					}
-//				}
-//			}
-//		}
-//	}
-
-//}
-
-
-// STATIC SOLVER
-//for (int i = 0; i < sortedBodies.size(); i++)
-//{
-//	GBBody* bodyA = sortedBodies[i];
-//	if (bodyA->ignoreSample || bodyA->isSleeping)
-//		continue;
-//	if (bodyA->isDynamic())
-//		handleStaticGeometry(*bodyA, interDeltaTime);
-
-//	std::vector<GBBody*> checkBodies;
-//	extractBroadPhaseBodies(i, sortedBodies, checkBodies);
-//	for (int j = 0; j < checkBodies.size(); j++)
-//	{
-//		GBBody* bodyB = checkBodies[j];
-//		if (bodyA == bodyB || !bodyA->sharesLayer(*bodyB))
-//			continue;
-//		std::pair<GBBody*, GBBody*> bodyPair;
-//		bodyPair.first = bodyA;
-//		bodyPair.second = bodyB;
-//		if (!containsPair(handledPairs, bodyA, bodyB))
-//			handledPairs.push_back(bodyPair);
-//		else
-//			continue;
-//		if (bodyA->isStatic && bodyB->isStatic)
-//			continue;
-
-//		for (int k = 0; k < bodyA->colliders.size(); k++)
-//		{
-//			GBCollider* colA = bodyA->colliders[k];
-//			for (int l = 0; l < bodyB->colliders.size(); l++)
-//			{
-//				GBCollider* colB = bodyB->colliders[l];
-//				GBSATCollisionData data;
-//				GBManifold manifold;
-//				if (overlapTest(colA, colB, data, manifold))
-//				{
-//					GBBody* dynamicBody, * staticBody;
-//					//if (bodyA->isStatic || bodyB->isStatic)
-//					if (!bodyA->isDynamic() || !bodyB->isDynamic())
-//					{
-//						if (bodyA->isDynamic())
-//						{
-//							dynamicBody = bodyA;
-//							staticBody = bodyB;
-//						}
-//						else
-//						{
-//							dynamicBody = bodyB;
-//							staticBody = bodyA;
-//						}
-//						dynamicBody->addStaticContact(staticBody);
-
-//						bool wakeSleeping = false;
-//						if (data.minOverlap > 0.005f)
-//							wakeSleeping = true;
-//						staticBody->addDynamicContact(dynamicBody, wakeSleeping);
-
-//						if (manifold.numContacts == 0)
-//							generateManifold(colA, colB, data, manifold);
-//						if (manifold.numContacts > 0)
-//						{
-//							// Swap if incident is below
-//							if (manifold.pIncident->type != ColliderType::Sphere && !manifold.pReference->pBody->isStatic)
-//								manifold.flipAndSwapIfContactOnTop(manifold.normal);
-//							//manifold.flipAndSwapIfOnTop();
-//						//manifold.pIncident->pBody->transform.position += manifold.normal * manifold.separation;
-//							if (manifold.pIncident->pBody->isSleeping)
-//								continue;
-//							solveDynamicPenetration(manifold, *manifold.pIncident->pBody);
-//							if (manifold.pIncident->type == ColliderType::Sphere)
-//							{
-//								if (manifold.pReference->pBody->isStatic && manifold.pReference->pBody->isOnLayer(LAYER_STATIC_DYNAMIC_SPHERE))
-//									solveStaticSphereManifold(manifold, *manifold.pIncident->pBody, interDeltaTime);
-//								else
-//									solveDynamicManifold(manifold, *manifold.pReference->pBody, *manifold.pIncident->pBody, interDeltaTime, true);
-
-//							}
-//							else
-//								solveStaticManifold(manifold, *manifold.pIncident->pBody, interDeltaTime);
-//							if (manifold.pIncident->pBody->isDynamic() && manifold.pIncident->type != ColliderType::Sphere)
-//								handleConstraintAction(manifold);
-//							manifold.pIncident->pBody->frameManifold.combine(manifold);
-//							GBManifold refManifold = GBManifold::asReference(manifold);
-//							manifold.pReference->pBody->frameManifold.combine(refManifold);
-//						}
-//					}
-//					else
-//					{
-//						bodyA->addStaticContact(bodyB);
-//						bodyB->addStaticContact(bodyA);
-//					}
-//				}
-//			}
-//		}
-//	}
-
-//}

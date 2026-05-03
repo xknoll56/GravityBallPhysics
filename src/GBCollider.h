@@ -455,63 +455,36 @@ struct GBBody
 
 		void updateConstraintPoint(float dt)
 		{
-			// Current world position of the constraint point
-			GBVector3 currentWorld = pBody->transform.transformPoint(localConstraintPoint);
+			GBVector3 worldA = pBody->transform.transformPoint(localConstraintPoint);
+
+			GBVector3 worldB = worldConstraintPoint;
 
 			if (pOtherBody && !pOtherBody->isStatic)
 			{
-				GBVector3 newWorldPoint = pOtherBody->transform.transformPoint(otherLocalConstraintPoint);
-				GBVector3 deltaWorldPoint = newWorldPoint - worldConstraintPoint;
-				float len = deltaWorldPoint.length();
-				if (len > breakingThreshold)
-				{
-					GBVector3 deltaN = deltaWorldPoint.normalized();
-					worldConstraintPoint = worldConstraintPoint + deltaN * breakingThreshold;
-				}
-				else
-				{
-					worldConstraintPoint = newWorldPoint;
-				}
+				worldB = pOtherBody->transform.transformPoint(otherLocalConstraintPoint);
 			}
-			// 1️⃣ Position correction
-			GBVector3 correction = worldConstraintPoint - currentWorld;
-			pBody->transform.position += correction;
 
-			// 2️⃣ Rotation correction with thresholds to prevent jitter
-			GBVector3 r = currentWorld - pBody->transform.position;
-			GBVector3 target = worldConstraintPoint - pBody->transform.position;
+			GBVector3 error = worldB - worldA;
 
-			if (r.length() > 1e-6f && target.length() > 1e-6f)
+			// mass weighting (important)
+			float wA = pBody->invMass;
+			float wB = (pOtherBody && !pOtherBody->isStatic) ? pOtherBody->invMass : 0.0f;
+			float wSum = wA + wB;
+
+			if (wSum <= 0.0f) return;
+
+			GBVector3 correctionA = error * (wA / wSum);
+			GBVector3 correctionB = -error * (wB / wSum);
+
+			// Apply corrections
+			pBody->transform.position += correctionA;
+			pBody->prevPosition = pBody->transform.position;
+
+			if (pOtherBody && !pOtherBody->isStatic)
 			{
-				GBVector3 axis = GBCross(r, target);
-				float axisLen = axis.length();
-				if (axisLen > 1e-6f) // only rotate if meaningful
-				{
-					axis /= axisLen;
-					float angle = acosf(GBClamp(GBDot(r.normalized(), target.normalized()), -1.f, 1.f));
-
-					// optionally interpolate rotation to reduce jitter
-					float factor = 0.5f;
-					GBQuaternion rotation = GBQuaternion::fromAxisAngle(axis, angle * factor);
-					GBQuaternion oldRotation = pBody->transform.rotation;
-					pBody->transform.rotate(rotation);
-
-					// 2️⃣ Rotation correction using local-alignment check
-					// Transform the world constraint point into the body's local space
-					GBVector3 newLocal = pBody->transform.inverse().transformPoint(worldConstraintPoint);
-
-					// Compute alignment between new local vector and original local vector
-					float alignment = GBAbs(GBDot(newLocal.normalized(), localConstraintPoint.normalized()));
-
-					const float tolerance = 1e-8f; // small tolerance for alignment
-					if (alignment > 1.0f - tolerance) // only rotate if significantly misaligned
-					{
-						// Revert the change
-						pBody->transform.rotation = oldRotation;
-					}
-				}
+				pOtherBody->transform.position += correctionB;
+				pOtherBody->prevPosition = pOtherBody->transform.position;
 			}
-
 		}
 	};
 
@@ -781,8 +754,12 @@ struct GBBody
 			return false;
 		if (isKinematic)
 			return false;
+		if (isTrigger)
+			return false;
 		return true;
 	}
+
+	bool isTrigger = false;
 
 	void wakeRecursive(std::unordered_set<GBBody*>& visited)
 	{
@@ -855,7 +832,7 @@ struct GBBody
 	}
 
 
-	void addDynamicContact(GBBody* other, bool awaken = false)
+	void addDynamicContact(GBBody* other, bool awaken = false, bool doWakeIsland = false)
 	{
 		if (std::find(dynamicBodies.begin(),
 			dynamicBodies.end(),
@@ -865,10 +842,20 @@ struct GBBody
 		}
 
 		if (awaken && isSleeping)
-			wake();
+		{
+			if (doWakeIsland)
+				wakeIsland();
+			else
+				wake();
+		}
 
 		if (awaken && other->isSleeping)
-			other->wake();
+		{
+			if (doWakeIsland)
+				other->wakeIsland();
+			else
+				other->wake();
+		}
 	}
 
 	std::vector<GBVector3> staticNormals;
@@ -901,7 +888,7 @@ struct GBBody
 		if (invMass <= 0.0f) return; // static body
 
 		// Skip physics if sleeping
-		if (isSleeping || isStatic)
+		if (isSleeping || isStatic || isTrigger)
 		{
 			updateColliders();
 			clearForces(); // make sure forces aren't accumulating
