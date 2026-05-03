@@ -1,4 +1,4 @@
-\# \*\*Physics Engine Overview\*\*
+Physics Engine Overview
 
 
 
@@ -22,13 +22,13 @@ Rather than explicitly constructing and solving a global constraint matrix, the 
 
 
 
-\- Local collision response acting as constraints  
+Local collision response acting as constraints
 
-\- Iterative sequential solving  
+Iterative sequential solving
 
-\- Implicit contact graph propagation  
+Implicit contact graph propagation
 
-\- Contact persistence across frames  
+Contact persistence across frames
 
 
 
@@ -36,11 +36,7 @@ This results in a deterministic and stable simulation where local interactions n
 
 
 
-\---
-
-
-
-\# \*\*Collision Shapes\*\*
+Collision Shapes
 
 
 
@@ -48,11 +44,11 @@ The engine currently supports a set of core primitive collision shapes designed 
 
 
 
-\- \*\*Spheres\*\*: used for fast symmetric collision tests and stable stacking approximations  
+Spheres: used for fast symmetric collision tests and stable stacking approximations
 
-\- \*\*Axis-aligned / oriented Boxes\*\*: support full 3D rigid body interaction using local axis projection tests  
+Axis-aligned / oriented Boxes: support full 3D rigid body interaction using local axis projection tests
 
-\- \*\*Capsules\*\*: used for smooth character-like bodies and rounded collision responses  
+Capsules: used for smooth character-like bodies and rounded collision responses
 
 
 
@@ -60,11 +56,7 @@ All shapes are implemented using analytic intersection tests, allowing for deter
 
 
 
-\---
-
-
-
-\# \*\*Raycasting\*\*
+Raycasting
 
 
 
@@ -76,11 +68,11 @@ Raycasts support:
 
 
 
-\- Sphere and box intersection tests  
+Sphere and box intersection tests
 
-\- Closest hit point, surface normal, and distance reporting  
+Closest hit point, surface normal, and distance reporting
 
-\- Use in grounding checks, visibility queries, and interaction systems  
+Use in grounding checks, visibility queries, and interaction systems
 
 
 
@@ -88,11 +80,7 @@ Raycasts operate directly on the same collision primitives used by the solver, e
 
 
 
-\---
-
-
-
-\# \*\*Spatial Partitioning (Uniform Grid)\*\*
+Spatial Partitioning (Uniform Grid)
 
 
 
@@ -104,11 +92,11 @@ Key characteristics:
 
 
 
-\- The world is divided into fixed-size grid cells  
+The world is divided into fixed-size grid cells
 
-\- Bodies are inserted into cells based on their bounds  
+Bodies are inserted into cells based on their bounds
 
-\- Collision checks are restricted to nearby cells only  
+Collision checks are restricted to nearby cells only
 
 
 
@@ -116,11 +104,7 @@ This reduces pairwise collision complexity while maintaining deterministic behav
 
 
 
-\---
-
-
-
-\# \*\*Interaction Propagation (Contact Graph)\*\*
+Interaction Propagation (Contact Graph)
 
 
 
