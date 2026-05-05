@@ -725,71 +725,6 @@ struct GBSimulation
 
 	}
 
-	void solveJoint(GBJointConstraint& j, float dt)
-	{
-		GBBody* A = j.A->pBody;
-		GBBody* B = j.B->pBody;
-
-		// --- world anchor positions ---
-		GBVector3 pA = A->transform.localToWorldPoint(j.localA);
-		GBVector3 pB = B->transform.localToWorldPoint(j.localB);
-
-		GBVector3 rA = pA - A->transform.position;
-		GBVector3 rB = pB - B->transform.position;
-
-		// --- velocities at anchor points ---
-		GBVector3 vA = A->velocity + GBCross(A->angularVelocity, rA);
-		GBVector3 vB = B->velocity + GBCross(B->angularVelocity, rB);
-
-		GBVector3 relVel = vB - vA;
-
-		// =========================================================
-		// 1. VELOCITY CORRECTION (THIS FIXES SPINNING)
-		// =========================================================
-
-		// remove ALL motion trying to separate/twist at the joint
-		GBVector3 velCorrection = relVel;
-
-		float invMassA = A->invMass;
-		float invMassB = B->invMass;
-		float wSum = invMassA + invMassB;
-
-		//if (wSum > 0.00001f)
-		//{
-		//	GBVector3 impulseVel = velCorrection / wSum;
-
-		//	A->velocity -= impulseVel * invMassA;
-		//	B->velocity += impulseVel * invMassB;
-
-		//	A->angularVelocity -= GBCross(rA, impulseVel) * A->invInertia;
-		//	B->angularVelocity += GBCross(rB, impulseVel) * B->invInertia;
-		//}
-
-		// =========================================================
-		// 2. POSITION CORRECTION (DRIFT FIX)
-		// =========================================================
-
-		GBVector3 error = pB - pA;
-
-		const float bias = j.bias; // usually 0.1 - 0.3
-
-		GBVector3 correction = error * bias;
-
-		if (wSum > 0.00001f)
-		{
-			GBVector3 moveA = correction * (invMassA / wSum);
-			GBVector3 moveB = correction * (invMassB / wSum);
-
-			if (!A->isStatic)
-				A->transform.position += moveA;
-
-			if (!B->isStatic)
-				B->transform.position -= moveB;
-		}
-	}
-
-
-
 	////bool ignoreFriction = false;
 	//if (vn > -normalRestingThreshold && vtLen < tangentialRestingThreshold)
 	//{
@@ -1612,8 +1547,10 @@ struct GBSimulation
 							}
 							dynamicBody->addStaticContact(staticBody);
 
-							bool wakeSleeping = true;
-
+							bool wakeSleeping = false;
+							static const float wakeThreshold = 0.055f;
+							if (data.minOverlap > wakeThreshold)
+								wakeSleeping = true;
 							staticBody->addDynamicContact(dynamicBody, wakeSleeping, true);
 							if (manifold.numContacts > 0)
 							{
@@ -1681,15 +1618,6 @@ struct GBSimulation
 				}
 			}
 
-			for (auto& rb : rigidBodies)
-			{
-				GBBody* body = rb.get();
-
-				for (GBJointConstraint& joint : body->joints)
-				{
-					solveJoint(joint, interDeltaTime);
-				}
-			}
 
 			for (auto& rb : rigidBodies)
 			{
@@ -1884,10 +1812,7 @@ struct GBSimulation
 		return generatedManifolds;
 	}
 
-	float getCorrectedPenetrationFromSlop(float penetration)
-	{
-		return GBMax(penetration - slop, 0.0f);
-	}
+
 	const static int maxRecurseDepth = 5;
 	void solveDynamicPenetrationRecurse(const GBManifold& manifold, GBBody& root, std::unordered_set<GBBody*>& visited, bool propogate = true)
 	{
@@ -1901,7 +1826,8 @@ struct GBSimulation
 		}
 		else if (root.isDynamic())
 		{
-			root.transform.position += manifold.normal * getCorrectedPenetrationFromSlop(manifold.separation);
+			float sepCap = GBClamp(manifold.separation, manifold.separation, 0.05f);
+			root.transform.position += manifold.normal * sepCap;
 		}
 
 
@@ -1935,9 +1861,8 @@ struct GBSimulation
 	void solveDynamicPenetration(GBManifold& manifold, GBBody& root, bool propogate = true)
 	{
 		std::unordered_set<GBBody*> visited;
-		float penetration = getCorrectedPenetrationFromSlop(manifold.separation);
-		if (penetration > maxPenetration)
-			penetration = maxPenetration;
+		if (manifold.separation > maxPenetration)
+			manifold.separation = maxPenetration;
 		solveDynamicPenetrationRecurse(manifold, root, visited, propogate);
 	}
 
@@ -1945,19 +1870,18 @@ struct GBSimulation
 	{
 		bool iDynamic = manifold.pIncident &&!manifold.pIncident->isStatic ? true : false;
 		bool rDynamic = manifold.pReference && !manifold.pReference->isStatic ? true : false;
-		float penetration = getCorrectedPenetrationFromSlop(manifold.separation);
 		if (iDynamic && rDynamic)
 		{
-			manifold.pReference->transform.position -= penetration * manifold.normal * 0.5f;
-			manifold.pIncident->transform.position += penetration * manifold.normal * 0.5f;
+			manifold.pReference->transform.position -= manifold.separation * manifold.normal * 0.5f;
+			manifold.pIncident->transform.position += manifold.separation * manifold.normal * 0.5f;
 		}
 		else if (iDynamic && !manifold.pIncident->isStatic)
 		{
-			manifold.pIncident->transform.position += penetration * manifold.normal;
+			manifold.pIncident->transform.position += manifold.separation * manifold.normal;
 		}
 		else if (rDynamic)
 		{
-			manifold.pReference->transform.position -= penetration * manifold.normal;
+			manifold.pReference->transform.position -= manifold.separation * manifold.normal;
 
 		}
 	}
