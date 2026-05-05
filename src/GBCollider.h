@@ -94,6 +94,7 @@ struct GBManifold
 	GBBody* pReference = nullptr;
 	bool isEdge = false;
 	bool isDynamicManifold = false;
+	bool isJoint = false;
 
 	GBManifold()
 	{
@@ -347,6 +348,67 @@ enum Layers : uint32_t {
 	LAYER_STATIC_DYNAMIC_SPHERE = LAYER_STATIC | LAYER_DYNAMIC_SPHERE,
 };
 
+
+struct GBJointConstraint
+{
+	GBCollider* A;
+	GBCollider* B;
+
+	GBVector3 localA;
+	GBVector3 localB;
+
+	float bias = 0.1f;        // positional correction strength
+	float softness = 0.0f;    // optional (springiness)
+
+	GBJointConstraint(GBCollider* a, GBCollider* b,
+		GBVector3 anchorA_world,
+		GBVector3 anchorB_world)
+	{
+		A = a;
+		B = b;
+
+		localA = A->transform.worldToLocalPoint(anchorA_world);
+		localB = B->transform.worldToLocalPoint(anchorB_world);
+	}
+
+	GBJointConstraint(GBCollider* a, GBCollider* b, GBVector3 worldPoint)
+	{
+		A = a;
+		B = b;
+
+		localA = A->transform.worldToLocalPoint(worldPoint);
+		localB = B->transform.worldToLocalPoint(worldPoint);
+	}
+
+	GBManifold buildBallJointManifold()
+	{
+		GBManifold m;
+
+		GBVector3 pA = A->transform.localToWorldPoint(localA);
+		GBVector3 pB = B->transform.localToWorldPoint(localB);
+
+		GBVector3 delta = pB - pA;
+		float len2 = delta.lengthSquared();
+
+		if (len2 < 1e-12f)
+			return m; // no correction needed
+
+		GBVector3 n = delta / sqrt(len2);
+
+		// Use one anchor (better torque fidelity than midpoint)
+		GBVector3 contactPoint = pA;
+
+		m.addContact(GBContact(contactPoint, n, 0.0f));
+
+		m.pIncident = A->pBody;
+		m.pReference = B->pBody;
+
+		m.isJoint = true;
+
+		return m;
+	}
+};
+
 struct GBBody
 {
 	// WORLD transform of the body
@@ -422,6 +484,8 @@ struct GBBody
 
 	bool isKinematic = false;
 
+	std::vector<GBJointConstraint> joints;
+
 	bool sharesLayer(const GBBody& other)
 	{
 		return ((mask & other.layer) && (layer & other.mask));
@@ -432,206 +496,7 @@ struct GBBody
 		return (layer & testLayer) != 0;
 	}
 
-	struct PointConstraint
-	{
-		GBBody* pBody = nullptr;
-		GBBody* pOtherBody = nullptr;
-		GBVector3 worldConstraintPoint;  // fixed world-space point
-		GBVector3 localConstraintPoint;  // fixed in body space
-		GBVector3 otherLocalConstraintPoint;
-		float breakingThreshold = 0.05f;
-
-		void setConstraintPoint(const GBVector3& worldPoint, GBBody* other)
-		{
-			worldConstraintPoint = worldPoint;
-			localConstraintPoint = pBody->transform.inverse().transformPoint(worldPoint);
-
-			if (other && !other->isStatic)
-			{
-				this->pOtherBody = other;
-				otherLocalConstraintPoint = other->transform.inverse().transformPoint(worldPoint);
-			}
-		}
-
-		void updateConstraintPoint(float dt)
-		{
-			GBVector3 worldA = pBody->transform.transformPoint(localConstraintPoint);
-
-			GBVector3 worldB = worldConstraintPoint;
-
-			if (pOtherBody && !pOtherBody->isStatic)
-			{
-				worldB = pOtherBody->transform.transformPoint(otherLocalConstraintPoint);
-			}
-
-			GBVector3 error = worldB - worldA;
-
-			// mass weighting (important)
-			float wA = pBody->invMass;
-			float wB = (pOtherBody && !pOtherBody->isStatic) ? pOtherBody->invMass : 0.0f;
-			float wSum = wA + wB;
-
-			if (wSum <= 0.0f) return;
-
-			GBVector3 correctionA = error * (wA / wSum);
-			GBVector3 correctionB = -error * (wB / wSum);
-
-			// Apply corrections
-			pBody->transform.position += correctionA;
-			pBody->prevPosition = pBody->transform.position;
-
-			if (pOtherBody && !pOtherBody->isStatic)
-			{
-				pOtherBody->transform.position += correctionB;
-				pOtherBody->prevPosition = pOtherBody->transform.position;
-			}
-		}
-	};
-
-	struct EdgeConstraint : PointConstraint
-	{
-		GBEdge worldEdge;   // fixed edge in world space
-		GBEdge otherLocalEdge;
-
-		void setConstraintEdge(const GBEdge& edge, GBBody* other)
-		{
-			worldEdge = edge;
-
-			worldConstraintPoint = worldEdge.closestPointOnLine(pBody->transform.position);
-			setConstraintPoint(worldConstraintPoint, other);
-
-			if(other && !other->isStatic)
-			otherLocalEdge = GBEdge(other->transform.inverse().transformPoint(worldEdge.a),
-				other->transform.inverse().transformPoint(worldEdge.b));
-		}
-
-		void updateConstraint(float dt)
-		{
-			if (pOtherBody && !pOtherBody->isStatic)
-			{
-				worldEdge = GBEdge(pOtherBody->transform.transformPoint(otherLocalEdge.a),
-					pOtherBody->transform.transformPoint(otherLocalEdge.b));
-			}
-			GBVector3 edgeDir = worldEdge.getBOutDirection();
-			pBody->angularVelocity = edgeDir * GBDot(edgeDir, pBody->angularVelocity);
-			updateConstraintPoint(dt);
-		}
-	};
-
-	enum ConstraintType
-	{
-		NONE = 0,
-		POINT = 1,
-		EDGE = 2,
-		PLANE = 3
-	};
-
-	PointConstraint pointConstraint;
-	EdgeConstraint edgeConstraint;
-	ConstraintType constraintType = ConstraintType::NONE;
-
-	void setConstraintPoint(GBVector3 point, GBBody* other)
-	{
-		pointConstraint.pBody = this;
-		pointConstraint.setConstraintPoint(point, other);
-		constraintType = ConstraintType::POINT;
-	}
-
-	void setConstraintEdge(GBVector3 point1, GBVector3 point2, GBBody* other, float samePointError = 0.1f)
-	{
-		GBVector3 local1 = transform.inverse().transformPoint(point1);
-		GBVector3 local2 = transform.inverse().transformPoint(point2);
-		GBVector3 sign1 = GBSign(local1);
-		GBVector3 sign2 = GBSign(local2);
-		GBVector3 localSign = GBSign(pointConstraint.localConstraintPoint);
-
-		if (!sign1.epsilonEqual(sign2))
-		{
-			edgeConstraint.pBody = this;
-			constraintType = ConstraintType::EDGE;
-			edgeConstraint.setConstraintEdge(GBEdge(point1, point2), other);
-		}
-
-		bool s1Equal = false;
-		bool s2Equal = false;
-		if (sign1.epsilonEqual(localSign))
-		{
-			s1Equal = true;
-		}
-		if (sign2.epsilonEqual(localSign))
-		{
-			s2Equal = true;
-		}
-		if (!s1Equal || !s2Equal)
-		{
-			edgeConstraint.pBody = this;
-			constraintType = ConstraintType::EDGE;
-			edgeConstraint.setConstraintEdge(GBEdge(point1, point2), other);
-		}
-		else if (s1Equal)
-		{
-			setConstraintPoint(point2, other);
-		}
-		else
-		{
-			setConstraintPoint(point1, other);
-		}
-
-	}
-
-	void resetConstraints()
-	{
-		GBBody* pOtherBody = nullptr;
-		bool isPoint = false;
-		if (constraintType == ConstraintType::POINT)
-		{
-			pOtherBody = pointConstraint.pOtherBody;
-			isPoint = true;
-		}
-		else if (constraintType == ConstraintType::EDGE)
-			pOtherBody = edgeConstraint.pOtherBody;
-		if (pOtherBody && pOtherBody != this)
-		{
-			if (pOtherBody->constraintType == ConstraintType::POINT)
-				pOtherBody->pointConstraint.pOtherBody = nullptr;
-			else if (pOtherBody->constraintType == ConstraintType::EDGE)
-				pOtherBody->edgeConstraint.pOtherBody = nullptr;
-		}
-		pointConstraint = PointConstraint();
-		edgeConstraint = EdgeConstraint();
-		constraintType = ConstraintType::NONE;
-	}
-
 	static const int maxRecursiveDepth = 5;
-
-	void resetContactConstraints()
-	{
-		std::unordered_set<GBBody*> visited;
-		resetConstraintsRecursive(visited);
-	}
-
-	void resetConstraintsRecursive(std::unordered_set<GBBody*>& visited)
-	{
-		if (visited.count(this)) return;
-		visited.insert(this);
-
-		resetConstraints();
-
-		if (visited.size() < maxRecursiveDepth)
-		{
-			for (GBBody* b : dynamicBodies)
-				if (b)
-				{
-					b->resetConstraintsRecursive(visited);
-				}
-
-			for (GBBody* b : staticBodies)
-				if (b)
-				{
-					b->resetConstraintsRecursive(visited);
-				}
-		}
-	}
 
 
 	GBBody(float mass = 1.0f, const GBVector3& halfExtents = { 0.5f, 0.5f, 0.5f })
@@ -723,7 +588,6 @@ struct GBBody
 		clearForces();
 		velocity = GBVector3::zero();
 		angularVelocity = GBVector3::zero();
-		resetContactConstraints();
 		wakeIsland();
 	}
 
@@ -770,7 +634,6 @@ struct GBBody
 		sleepTimer = 0.0f;
 		staticGeometries.clear();
 		isGrounded = false;
-		resetConstraints();
 
 		for (GBBody* b : dynamicBodies)
 			if (b && !b->isStatic)
@@ -827,7 +690,6 @@ struct GBBody
 		isSleeping = false;
 		sleepTimer = 0.0f;
 		awakeTimer = 0.0f;
-		resetContactConstraints();
 		staticGeometries.clear();
 	}
 
@@ -898,9 +760,7 @@ struct GBBody
 		// Linear
 		GBVector3 acceleration = forceAccum * invMass;
 		velocity += acceleration * dt;
-		//GBVector3 nextPosition = transform.position + velocity * dt;
-		//prevPosition = transform.position;
-		//transform.position = nextPosition;
+
 
 		// Angular
 		GBVector3 angularAcc = {
@@ -910,14 +770,6 @@ struct GBBody
 		};
 		angularVelocity += angularAcc * dt;
 
-		//if (angularVelocity.lengthSquared() > 0.0f)
-		//{
-		//	float angle = angularVelocity.length() * dt;
-		//	GBVector3 axis = angularVelocity.normalized();
-		//	GBQuaternion deltaRot = GBQuaternion::fromAxisAngle(axis, angle);
-		//	transform.rotation = deltaRot * transform.rotation;
-		//	transform.rotation.normalize();
-		//}
 
 		// Clear accumulators
 		clearForces();
@@ -943,19 +795,6 @@ struct GBBody
 			prevRotation = transform.rotation;
 			transform.rotation = deltaRot * transform.rotation;
 			transform.rotation.normalize();
-		}
-
-		//handleConstraints();
-		switch (constraintType)
-		{
-		case ConstraintType::POINT:
-			pointConstraint.updateConstraintPoint(dt);
-			break;
-		case ConstraintType::EDGE:
-			edgeConstraint.updateConstraint(dt);
-			break;
-		case ConstraintType::PLANE:
-			break;
 		}
 	}
 
@@ -1004,6 +843,7 @@ struct GBBody
 		return GBQuaternion::toAngularVelocity(prevRotation, transform.rotation, dt);
 	}
 };
+
 
 inline void GBCollider::setPosition(const GBVector3& position, bool doUpdateAABB)
 {
