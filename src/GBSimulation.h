@@ -261,6 +261,7 @@ struct GBSimulation
 	{
 		if (!pBody) return false;
 
+		pBody->resetContactConstraints();
 		gridMap.removeBody(*pBody);
 
 		auto collidersCopy = pBody->colliders;
@@ -288,7 +289,6 @@ struct GBSimulation
 		pBody->updateColliders();
 		if (insertToGrid)
 			gridMap.insertBody(*pBody);
-		recenterMass(pBody);
 		return col;
 	}
 
@@ -340,7 +340,6 @@ struct GBSimulation
 		pBody->updateColliders();
 		if (insertToGrid)
 			gridMap.insertBody(*pBody);
-		recenterMass(pBody);
 		return col;
 	}
 
@@ -360,7 +359,6 @@ struct GBSimulation
 		pBody->updateColliders();
 		if (insertToGrid)
 			gridMap.insertBody(*pBody);
-		recenterMass(pBody);
 		return col;
 	}
 
@@ -1467,10 +1465,6 @@ struct GBSimulation
 								solveDynamicManifold(manifold, *manifold.pReference, *manifold.pIncident, interDeltaTime, true);
 								break;
 							case CAPSULE_SPHERE:
-								solveDynamicPenetrationEqually(manifold);
-								solveDynamicManifold(manifold, *manifold.pReference, *manifold.pIncident, interDeltaTime, true);
-								break;
-							case CAPSULE_CAPSULE:
 								solveDynamicPenetrationEqually(manifold);
 								solveDynamicManifold(manifold, *manifold.pReference, *manifold.pIncident, interDeltaTime, true);
 								break;
