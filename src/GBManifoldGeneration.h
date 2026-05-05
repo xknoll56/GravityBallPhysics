@@ -837,39 +837,35 @@ struct GBManifoldGeneration
 		GBContact hit;
 		GBVector3 upper, lower;
 		capsule.extractSphereLocations(upper, lower);
-		GBManifold best;
-		best.separation = -FLT_MAX;
-		bool found = false;
+		bool foundPen = false;
 		outManifold.separation = FLT_MAX;
 		for (int i = 0; i < 6; i++)
 		{
 			GBManifold test;
 			GBQuad face = GBBoxCardinalToQuad(box, (GBCardinal)i);
-
 			if (GBManifoldCapsuleQuad(capsule, face, test, true))
 			{
-				if (!found || test.separation > best.separation)
+				//if (test.separation < outManifold.separation)
 				{
-					best = test;
-					found = true;
+					outManifold.combine(test);
 				}
+				foundPen = true;
 			}
-		}
-		if (found)
-		{
-			outManifold = best;
 
+		}
+		if (foundPen)
+		{
 			if (outManifold.numContacts > 0)
 			{
 				outManifold.numContacts = 1;
-				if (GBDot(capsule.transform.position - outManifold.contacts[0].position, outManifold.contacts[0].normal) < 0)
+				if (GBDot(box.transform.position - outManifold.contacts[0].position, outManifold.contacts[0].normal) < 0)
 				{
 					outManifold.contacts[0].normal *= -1.0f;
 				}
 				outManifold.useNormal(outManifold.contacts[0]);
 				outManifold.separation = GBAbs(outManifold.contacts[0].penetrationDepth);
-				outManifold.pReference = box.pBody;
-				outManifold.pIncident = capsule.pBody;
+				outManifold.pReference = capsule.pBody;
+				outManifold.pIncident = box.pBody;
 				return true;
 			}
 		}
