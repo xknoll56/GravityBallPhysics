@@ -1468,7 +1468,7 @@ struct GBSimulation
 								break;
 							case CAPSULE_SPHERE:
 								solveDynamicPenetrationEqually(manifold);
-								solveDynamicManifold(manifold, *manifold.pReference, *manifold.pIncident, interDeltaTime, true);
+								solveDynamicManifold(manifold, *manifold.pIncident, *manifold.pReference, interDeltaTime, true);
 								break;
 							case CAPSULE_CAPSULE:
 								solveDynamicPenetrationEqually(manifold);
