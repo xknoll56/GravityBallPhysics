@@ -303,6 +303,11 @@ struct GBManifold
 	{
 		normal = contact.normal;
 		separation = GBAbs(contact.penetrationDepth);
+		for (int i = 0; i < numContacts; i++)
+		{
+			contacts[i].normal = GBAlign(normal, contacts[i].normal);
+			contacts[i].penetrationDepth = GBAbs(contacts[i].penetrationDepth);
+		}
 	}
 
 	bool equalPair(const GBManifold& other) const
@@ -1429,9 +1434,29 @@ struct GBBoxCollider : public GBCollider {
 		}
 	}
 
-	GBQuad cardinalToQuad(GBCardinal dir)
+	GBVector3 cardinalToDir(GBCardinal dir)
 	{
-
+		switch (dir)
+		{
+		case GBCardinal::NegX:
+			return -transform.forward();
+			break;
+		case GBCardinal::PosX:
+			return transform.forward();
+			break;
+		case GBCardinal::NegY:
+			return -transform.right();
+			break;
+		case GBCardinal::PosY:
+			return transform.right();
+			break;
+		case GBCardinal::NegZ:
+			return -transform.up();
+			break;
+		case GBCardinal::PosZ:
+			return transform.up();
+			break;
+		}
 	}
 
 	float volume() const  override

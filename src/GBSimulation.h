@@ -1529,11 +1529,11 @@ struct GBSimulation
 							break;
 							case CAPSULE_BOX:
 								solveDynamicPenetrationEqually(manifold);
-								solveDynamicManifold(manifold, *manifold.pReference, *manifold.pIncident, interDeltaTime, true);
+								solveDynamicManifold(manifold, *manifold.pIncident, *manifold.pReference, interDeltaTime, true);
 								break;
 							case CAPSULE_SPHERE:
 								solveDynamicPenetrationEqually(manifold);
-								solveDynamicManifold(manifold, *manifold.pReference, *manifold.pIncident, interDeltaTime, true);
+								solveDynamicManifold(manifold,  *manifold.pReference, *manifold.pIncident, interDeltaTime, true);
 								break;
 							case CAPSULE_CAPSULE:
 								solveDynamicPenetrationEqually(manifold);
@@ -1886,7 +1886,8 @@ struct GBSimulation
 
 	float getCorrectedPenetrationFromSlop(float penetration)
 	{
-		return GBMax(penetration - slop, 0.0f);
+		float corrected = GBMax(penetration - slop, 0.0f);
+		return GBMin(corrected, maxPenetration);
 	}
 	const static int maxRecurseDepth = 5;
 	void solveDynamicPenetrationRecurse(const GBManifold& manifold, GBBody& root, std::unordered_set<GBBody*>& visited, bool propogate = true)
