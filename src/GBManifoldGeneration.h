@@ -575,8 +575,8 @@ struct GBManifoldGeneration
 			outManifold.addContact(
 				GBContact(rp + normal * reference.radius, normal, penetration)
 			);
-
 			outManifold.useNormal(outManifold.contacts[0]);
+			
 			return true;
 		}
 
@@ -584,6 +584,8 @@ struct GBManifoldGeneration
 		{
 			if (GBDot(incident.transform.position - reference.transform.position, outManifold.normal) < 0)
 				outManifold.normal *= -1.0f;
+			outManifold.alignContactsWithNormal();
+
 		}
 		return outManifold.numContacts > 0;
 	}
@@ -858,14 +860,14 @@ struct GBManifoldGeneration
 			if (outManifold.numContacts > 0)
 			{
 				outManifold.numContacts = 1;
-				if (GBDot(box.transform.position - outManifold.contacts[0].position, outManifold.contacts[0].normal) < 0)
+				if (GBDot(capsule.transform.position - outManifold.contacts[0].position, outManifold.contacts[0].normal) < 0)
 				{
 					outManifold.contacts[0].normal *= -1.0f;
 				}
 				outManifold.useNormal(outManifold.contacts[0]);
 				outManifold.separation = GBAbs(outManifold.contacts[0].penetrationDepth);
-				outManifold.pReference = capsule.pBody;
-				outManifold.pIncident = box.pBody;
+				outManifold.pReference = box.pBody;
+				outManifold.pIncident = capsule.pBody;
 				return true;
 			}
 		}

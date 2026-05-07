@@ -303,6 +303,11 @@ struct GBManifold
 	{
 		normal = contact.normal;
 		separation = GBAbs(contact.penetrationDepth);
+		alignContactsWithNormal();
+	}
+
+	void alignContactsWithNormal()
+	{
 		for (int i = 0; i < numContacts; i++)
 		{
 			contacts[i].normal = GBAlign(normal, contacts[i].normal);
@@ -626,6 +631,11 @@ struct GBBody
 		if (isTrigger)
 			return false;
 		return true;
+	}
+
+	bool isMovable()
+	{
+		return !isStatic && !isTrigger;
 	}
 
 	bool isTrigger = false;

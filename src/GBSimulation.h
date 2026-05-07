@@ -402,7 +402,7 @@ struct GBSimulation
 		gridMap.moveBody(body);
 	}
 
-	int solverIterations = 6 ;   // 6–12 typical
+	int solverIterations = 6;   // 6–12 typical
 	static constexpr float maxDeltaTime = 1.0f / 60.0f;
 	float timeScale = 1.0f;
 
@@ -1437,6 +1437,7 @@ struct GBSimulation
 						GBSATCollisionData data;
 						GBManifold manifold;
 						SolverType type;
+
 						if (generateBodyManifold(bodyA, bodyB, data, manifold, type))
 						{
 							if (manifold.numContacts == 0)
@@ -1447,8 +1448,8 @@ struct GBSimulation
 							switch (type)
 							{
 							case SPHERE_SPHERE:
-								manifold.pIncident->transform.position += manifold.normal * manifold.separation;
-								solveDynamicManifold(manifold, *manifold.pReference, *manifold.pIncident, interDeltaTime, true);
+								solveDynamicPenetrationEqually(manifold);
+								solveDynamicManifold(manifold, *manifold.pIncident, *manifold.pReference, interDeltaTime, true);
 								break;
 							case BOX_SPHERE:
 								solveDynamicPenetrationEqually(manifold);
@@ -1464,7 +1465,7 @@ struct GBSimulation
 							break;
 							case CAPSULE_BOX:
 								solveDynamicPenetrationEqually(manifold);
-								solveDynamicManifold(manifold, *manifold.pReference, *manifold.pIncident, interDeltaTime, true);
+								solveDynamicManifold(manifold, *manifold.pIncident, *manifold.pReference, interDeltaTime, true);
 								break;
 							case CAPSULE_SPHERE:
 								solveDynamicPenetrationEqually(manifold);
@@ -1472,15 +1473,15 @@ struct GBSimulation
 								break;
 							case CAPSULE_CAPSULE:
 								solveDynamicPenetrationEqually(manifold);
-								solveDynamicManifold(manifold, *manifold.pReference, *manifold.pIncident, interDeltaTime, true);
+								solveDynamicManifold(manifold, *manifold.pIncident, *manifold.pReference, interDeltaTime, true);
 								break;
 							case COMPOUND:
 								solveDynamicPenetrationEqually(manifold);
 								solveDynamicManifold(manifold, *bodyA, *bodyB, interDeltaTime, true);
 								break;
 							}
-							bodyA->addDynamicContact(bodyB);
-							bodyB->addDynamicContact(bodyA);
+							bodyA->addDynamicContact(bodyB, true, true);
+							bodyB->addDynamicContact(bodyA, true, true);
 
 							if (manifold.pIncident && manifold.pReference)
 							{
@@ -1533,9 +1534,9 @@ struct GBSimulation
 
 						GBBody* dynamicBody, * staticBody;
 						//if (bodyA->isStatic || bodyB->isStatic)
-						if (!bodyA->isDynamic() || !bodyB->isDynamic())
+						if (!bodyA->isMovable() || !bodyB->isMovable())
 						{
-							if (bodyA->isDynamic() || bodyA->isKinematic)
+							if (bodyA->isMovable())
 							{
 								dynamicBody = bodyA;
 								staticBody = bodyB;
@@ -1581,17 +1582,14 @@ struct GBSimulation
 									break;
 								case CAPSULE_BOX:
 									solveDynamicPenetration(manifold, *manifold.pIncident);
-									// If the capsule is dynamic use the capsule solver, otherwise use the box solver
-									if (manifold.pIncident->isDynamic() || manifold.pIncident->isPlayerController)
-										solveStaticManifold(manifold, *manifold.pIncident);
-									else
-									{
-										manifold.flipAndSwap();
-										solveStaticManifold(manifold, *manifold.pIncident);
-									}
+									solveStaticManifold(manifold, *manifold.pIncident);
 									break;
 								case CAPSULE_CAPSULE:
 									solveDynamicPenetration(manifold, *manifold.pIncident);
+									solveStaticManifold(manifold, *manifold.pIncident);
+									break;
+								case CAPSULE_SPHERE:
+									solveDynamicPenetrationEqually(manifold);
 									solveStaticManifold(manifold, *manifold.pIncident);
 									break;
 								case COMPOUND:
@@ -1819,15 +1817,11 @@ struct GBSimulation
 		if (visited.find(&root) != visited.end()) return; // already moved
 		visited.insert(&root);
 
-		if (root.isKinematic)
+		//float adjustedSeparation = GBMin(manifold.separation, maxPenetration);
+		float adjustedSeparation = GBMin(manifold.separation * (1.0f - slop), maxPenetration);
+		if (root.isMovable())
 		{
-			root.transform.position += manifold.normal * manifold.separation;
-			return;
-		}
-		else if (root.isDynamic())
-		{
-			float sepCap = GBClamp(manifold.separation, manifold.separation, 0.05f);
-			root.transform.position += manifold.normal * sepCap;
+			root.transform.position += manifold.normal * adjustedSeparation;
 		}
 
 
@@ -1868,20 +1862,21 @@ struct GBSimulation
 
 	void solveDynamicPenetrationEqually(GBManifold& manifold)
 	{
-		bool iDynamic = manifold.pIncident &&!manifold.pIncident->isStatic ? true : false;
-		bool rDynamic = manifold.pReference && !manifold.pReference->isStatic ? true : false;
+		bool iDynamic = manifold.pIncident && manifold.pIncident->isMovable() ? true : false;
+		bool rDynamic = manifold.pReference && manifold.pReference->isMovable() ? true : false;
+		float adjustedSeparation = GBMin(manifold.separation*(1.0f- slop), maxPenetration);
 		if (iDynamic && rDynamic)
 		{
-			manifold.pReference->transform.position -= manifold.separation * manifold.normal * 0.5f;
-			manifold.pIncident->transform.position += manifold.separation * manifold.normal * 0.5f;
+			manifold.pReference->transform.position -= adjustedSeparation * manifold.normal * 0.5f;
+			manifold.pIncident->transform.position += adjustedSeparation * manifold.normal * 0.5f;
 		}
 		else if (iDynamic && !manifold.pIncident->isStatic)
 		{
-			manifold.pIncident->transform.position += manifold.separation * manifold.normal;
+			manifold.pIncident->transform.position += adjustedSeparation * manifold.normal;
 		}
 		else if (rDynamic)
 		{
-			manifold.pReference->transform.position -= manifold.separation * manifold.normal;
+			manifold.pReference->transform.position -= adjustedSeparation * manifold.normal;
 
 		}
 	}
