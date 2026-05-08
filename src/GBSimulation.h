@@ -1570,7 +1570,6 @@ struct GBSimulation
 								case BOX_SPHERE:
 									solveDynamicPenetration(manifold, *manifold.pIncident, false);
 									solveStaticSphereManifold(manifold, *manifold.pIncident, interDeltaTime);
-
 									break;
 								case BOX_BOX:
 									if (!manifold.pReference->isStatic)
@@ -1589,8 +1588,16 @@ struct GBSimulation
 									solveStaticManifold(manifold, *manifold.pIncident);
 									break;
 								case CAPSULE_SPHERE:
-									solveDynamicPenetrationEqually(manifold);
-									solveStaticManifold(manifold, *manifold.pIncident);
+									if (manifold.pReference == dynamicBody)
+									{
+										manifold.flipAndSwap();
+									}
+									solveDynamicPenetration(manifold, *manifold.pIncident, false);
+									if (bodyIsSphere(manifold.pIncident))
+										solveStaticSphereManifold(manifold, *manifold.pIncident, interDeltaTime);
+									else
+										solveStaticManifold(manifold, *manifold.pIncident);
+
 									break;
 								case COMPOUND:
 									if (!manifold.pIncident)
