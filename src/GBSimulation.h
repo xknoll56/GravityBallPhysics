@@ -1637,9 +1637,10 @@ struct GBSimulation
 					body->updateTransform(interDeltaTime);
 
 				// combine linear and angular speed
-				float speed = body->realVelocity(interDeltaTime).length();
-				float angSpeed = body->realAngularVelocity(interDeltaTime).length();
-
+				//float speed = body->realVelocity(interDeltaTime).length();
+				//float angSpeed = body->realAngularVelocity(interDeltaTime).length();
+				float speed = body->velocity.length();
+				float angSpeed = body->angularVelocity.length();
 
 				bool staticBelow = false;
 				for (int i = 0; i < body->staticBodies.size(); i++)
