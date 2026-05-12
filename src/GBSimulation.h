@@ -407,15 +407,6 @@ struct GBSimulation
 	float timeScale = 1.0f;
 
 
-	bool bodyIsBox(const GBBody& pBody)
-	{
-		if (pBody.colliders.size() == 1)
-		{
-			return pBody.colliders[0]->type == ColliderType::Box;
-		}
-		return false;
-	}
-
 	void solveDynamicManifold(const GBManifold& m, GBBody& A, GBBody& B, float dt, bool canTreatAsStatic = true)
 	{
 		//if (A.isKinematic || B.isKinematic)
@@ -545,20 +536,6 @@ struct GBSimulation
 				}
 			}
 		}
-
-		//// Linear damping
-		//A.velocity *= 0.999f;
-		//B.velocity *= 0.999f;
-
-		//// Angular damping
-		//A.angularVelocity *= 0.999f;
-		//B.angularVelocity *= 0.999f;
-
-		//if (GBDot(A.velocity, B.velocity) < 0)
-		//{
-		//	A.resetContactConstraints();
-		//	B.resetContactConstraints();
-		//}
 	}
 
 	void solveStaticSphereManifold(const GBManifold& manifold, GBBody& body, float dt)
@@ -1327,9 +1304,13 @@ struct GBSimulation
 
 	struct BodyPairHash
 	{
-		size_t operator()(const BodyPair& p) const
+		size_t operator()(const BodyPair& p) const noexcept
 		{
-			return std::hash<GBBody*>()(p.a) ^ (std::hash<GBBody*>()(p.b) << 1);
+			size_t h1 = std::hash<GBBody*>{}(p.a);
+			size_t h2 = std::hash<GBBody*>{}(p.b);
+
+			// boost-style hash combine
+			return h1 ^ (h2 + 0x9e3779b97f4a7c15ULL + (h1 << 6) + (h1 >> 2));
 		}
 	};
 
@@ -1403,8 +1384,17 @@ struct GBSimulation
 
 
 			std::vector<GBBody*> sortedBodies = sortBodiesByHeight(rigidBodies);
-			std::vector<std::pair<GBBody*, GBBody*>> dynamicPairs;
-			// Do all the boxes now
+			std::unordered_set<BodyPair, BodyPairHash> dynamicPairs;
+
+			//*****************************************************************************************************
+			//*****************************************************************************************************
+			//*****************************************************************************************************
+			//*****************************************************************************************************
+			// DYNAMIC SOLVER
+			//*****************************************************************************************************
+			//*****************************************************************************************************
+			//*****************************************************************************************************
+			//*****************************************************************************************************
 			for (int i = 0; i < sortedBodies.size(); i++)
 			{
 				GBBody* bodyA = sortedBodies[i];
@@ -1418,14 +1408,10 @@ struct GBSimulation
 					GBBody* bodyB = checkBodies[j];
 					if (bodyA == bodyB || !bodyA->sharesLayer(*bodyB))
 						continue;
-					std::pair<GBBody*, GBBody*> bodyPair;
-					bodyPair.first = bodyA;
-					bodyPair.second = bodyB;
-					if (!containsPair(dynamicPairs, bodyA, bodyB))
-						dynamicPairs.push_back(bodyPair);
-					else
-						continue;
-					//if (bodyA->isSleeping || bodyB->isSleeping) continue;
+
+					BodyPair pair(bodyA, bodyB);
+					if (!dynamicPairs.insert(pair).second);
+						continue; 
 
 
 					if (!bodyA->isStatic && !bodyB->isStatic)
@@ -1443,43 +1429,19 @@ struct GBSimulation
 							if (manifold.numContacts == 0)
 								continue;
 
-							curPairManifolds[BodyPair(bodyA, bodyB)] = manifold;
+							curPairManifolds[pair] = manifold;
 
-							switch (type)
+							if (type == BOX_BOX)
 							{
-							case SPHERE_SPHERE:
-								solveDynamicPenetrationEqually(manifold);
-								solveDynamicManifold(manifold, *manifold.pIncident, *manifold.pReference, interDeltaTime, true);
-								break;
-							case BOX_SPHERE:
-								solveDynamicPenetrationEqually(manifold);
-								solveDynamicManifold(manifold,  *manifold.pIncident,*manifold.pReference, interDeltaTime, true);
-								break;
-							case BOX_BOX:
-							{
-								if (!manifold.pReference->isStatic)
-									manifold.flipAndSwapIfContactOnTop(manifold.normal);
+								manifold.flipAndSwapIfContactOnTop(manifold.normal);
 								solveDynamicPenetration(manifold, *manifold.pIncident);
-								solveDynamicManifold(manifold, *manifold.pIncident, *manifold.pReference, interDeltaTime, true);
 							}
-							break;
-							case CAPSULE_BOX:
+							else
+							{
 								solveDynamicPenetrationEqually(manifold);
-								solveDynamicManifold(manifold, *manifold.pIncident, *manifold.pReference, interDeltaTime, true);
-								break;
-							case CAPSULE_SPHERE:
-								solveDynamicPenetrationEqually(manifold);
-								solveDynamicManifold(manifold, *manifold.pIncident, *manifold.pReference, interDeltaTime, true);
-								break;
-							case CAPSULE_CAPSULE:
-								solveDynamicPenetrationEqually(manifold);
-								solveDynamicManifold(manifold, *manifold.pIncident, *manifold.pReference, interDeltaTime, true);
-								break;
-							case COMPOUND:
-								solveDynamicPenetrationEqually(manifold);
-								solveDynamicManifold(manifold, *bodyA, *bodyB, interDeltaTime, true);
-								break;
 							}
+							solveDynamicManifold(manifold, *manifold.pIncident, *manifold.pReference, interDeltaTime, true);
+
 							bodyA->addDynamicContact(bodyB, true, true);
 							bodyB->addDynamicContact(bodyA, true, true);
 
@@ -1497,7 +1459,17 @@ struct GBSimulation
 
 			}
 
-			std::vector<std::pair<GBBody*, GBBody*>> staticPairs;
+
+			//*****************************************************************************************************
+			//*****************************************************************************************************
+			//*****************************************************************************************************
+			//*****************************************************************************************************
+			// STATIC SOLVER
+			//*****************************************************************************************************
+			//*****************************************************************************************************
+			//*****************************************************************************************************
+			//*****************************************************************************************************
+			std::unordered_set<BodyPair, BodyPairHash> staticPairs;
 			for (int i = 0; i < sortedBodies.size(); i++)
 			{
 				GBBody* bodyA = sortedBodies[i];
@@ -1513,13 +1485,11 @@ struct GBSimulation
 					GBBody* bodyB = checkBodies[j];
 					if (bodyA == bodyB || !bodyA->sharesLayer(*bodyB))
 						continue;
-					std::pair<GBBody*, GBBody*> bodyPair;
-					bodyPair.first = bodyA;
-					bodyPair.second = bodyB;
-					if (!containsPair(staticPairs, bodyA, bodyB))
-						staticPairs.push_back(bodyPair);
-					else
-						continue;
+
+					BodyPair pair(bodyA, bodyB);
+					if (!staticPairs.insert(pair).second);
+						continue; // already processed this pair
+
 					if (bodyA->isStatic && bodyB->isStatic)
 						continue;
 
@@ -1562,50 +1532,15 @@ struct GBSimulation
 								if (bodyB->isTrigger)
 									continue;
 
-								switch (type)
-								{
-								case SPHERE_SPHERE:
-									// Don't bother, treat as dynamic
-									break;
-								case BOX_SPHERE:
-									solveDynamicPenetration(manifold, *manifold.pIncident, false);
-									solveStaticSphereManifold(manifold, *manifold.pIncident, interDeltaTime);
-									break;
-								case BOX_BOX:
-									if (!manifold.pReference->isStatic)
-										manifold.flipAndSwapIfContactOnTop(manifold.normal);
-									if (!manifold.pIncident)
-										continue;
-									solveDynamicPenetration(manifold, *manifold.pIncident);
-									solveStaticManifold(manifold, *manifold.pIncident);
-									break;
-								case CAPSULE_BOX:
-									solveDynamicPenetration(manifold, *manifold.pIncident);
-									solveStaticManifold(manifold, *manifold.pIncident);
-									break;
-								case CAPSULE_CAPSULE:
-									solveDynamicPenetration(manifold, *manifold.pIncident);
-									solveStaticManifold(manifold, *manifold.pIncident);
-									break;
-								case CAPSULE_SPHERE:
-									if (manifold.pReference == dynamicBody)
-									{
-										manifold.flipAndSwap();
-									}
-									solveDynamicPenetration(manifold, *manifold.pIncident, false);
-									if (bodyIsSphere(manifold.pIncident))
-										solveStaticSphereManifold(manifold, *manifold.pIncident, interDeltaTime);
-									else
-										solveStaticManifold(manifold, *manifold.pIncident);
+								if (dynamicBody == manifold.pReference)
+									manifold.flipAndSwap();
 
-									break;
-								case COMPOUND:
-									if (!manifold.pIncident)
-										continue;
-									solveDynamicPenetration(manifold, *manifold.pIncident);
+								solveDynamicPenetration(manifold, *manifold.pIncident);
+								if (bodyIsPureColliderType(*manifold.pIncident, ColliderType::Sphere))
+									solveStaticSphereManifold(manifold, *manifold.pIncident, interDeltaTime);
+								else
 									solveStaticManifold(manifold, *manifold.pIncident);
-									break;
-								}
+
 								if (manifold.pIncident && manifold.pReference)
 								{
 									manifold.pIncident->frameManifold.combine(manifold);
@@ -1636,9 +1571,7 @@ struct GBSimulation
 				if (!body->isStatic)
 					body->updateTransform(interDeltaTime);
 
-				// combine linear and angular speed
-				//float speed = body->realVelocity(interDeltaTime).length();
-				//float angSpeed = body->realAngularVelocity(interDeltaTime).length();
+
 				float speed = body->velocity.length();
 				float angSpeed = body->angularVelocity.length();
 
@@ -1838,7 +1771,7 @@ struct GBSimulation
 		{
 			for (GBBody* child : root.dynamicBodies)
 			{
-				if (bodyIsSphere(child))
+				if (bodyIsPureColliderType(*child, ColliderType::Sphere))
 				{
 					if (GBDot(manifold.normal, GBVector3::up()) > 0.80f)
 					{
@@ -1854,9 +1787,24 @@ struct GBSimulation
 		}
 	}
 
-	bool bodyIsSphere(const GBBody* pBody)
+	bool bodyIsPureColliderType(const GBBody& body, const ColliderType type)
 	{
-		return pBody->colliders[0]->type == ColliderType::Sphere;
+		if (body.colliders.size() == 1)
+		{
+			switch (type)
+			{
+			case ColliderType::Capsule:
+				return body.colliders[0]->type == ColliderType::Capsule;
+				break;
+			case ColliderType::Box:
+				return body.colliders[0]->type == ColliderType::Box;
+				break;
+			case ColliderType::Sphere:
+				return body.colliders[0]->type == ColliderType::Sphere;
+				break;
+			}
+		}
+		return false;
 	}
 
 	// Wrapper to call recursion
