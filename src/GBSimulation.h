@@ -1410,7 +1410,7 @@ struct GBSimulation
 						continue;
 
 					BodyPair pair(bodyA, bodyB);
-					if (!dynamicPairs.insert(pair).second);
+					if (!dynamicPairs.insert(pair).second)
 						continue; 
 
 
@@ -1487,7 +1487,7 @@ struct GBSimulation
 						continue;
 
 					BodyPair pair(bodyA, bodyB);
-					if (!staticPairs.insert(pair).second);
+					if (!staticPairs.insert(pair).second)
 						continue; // already processed this pair
 
 					if (bodyA->isStatic && bodyB->isStatic)
