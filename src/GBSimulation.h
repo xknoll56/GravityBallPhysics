@@ -35,10 +35,8 @@ struct GBSimulation
 	std::vector<std::unique_ptr<GBCapsuleCollider>> capsuleColliders;
 	std::vector<std::unique_ptr<GBBody>> rigidBodies;
 	std::vector<std::unique_ptr<GBCloth>> cloths;
-	std::vector< std::unique_ptr<GBQuad>> quads;
 	std::vector< std::unique_ptr<GBTriangle>> triangles;
 	std::vector< std::unique_ptr<GBTerrain>> terrains;
-	GBBoxCollider* pStaticBox;
 	uint32_t idCount;
 	std::unordered_map<uint32_t, std::vector<std::function<void(const GBManifold& manifold, GBBody* pOther)>>> enterListeners;
 	std::unordered_map<uint32_t, std::vector<std::function<void(const GBManifold& manifold, GBBody* pOther)>>> stayListeners;
@@ -49,7 +47,23 @@ struct GBSimulation
 		: gridMap()
 	{
 		idCount = 0;
-		setupStaticBox();
+	}
+
+	void clearSimulation()
+	{
+		while (!rigidBodies.empty())
+			deleteBody(rigidBodies.back().get());
+
+		while (!terrains.empty())
+			deleteTerrain(terrains.back().get());
+
+		while (!triangles.empty())
+			deleteTriangle(triangles.back().get());
+	}
+
+	~GBSimulation()
+	{
+		clearSimulation();
 	}
 
 	void dispatchEnterListeners(uint32_t id, const GBManifold& manifold, GBBody* pOther)
@@ -94,14 +108,6 @@ struct GBSimulation
 		exitListeners[id].push_back(std::move(fn));
 	}
 
-	void setupStaticBox()
-	{
-		GBBody* staticBody = createBody();
-		staticBody->isStatic = true;
-		pStaticBox = attachBoxCollider(staticBody, { 0.5f,0.5f,0.5f }, GBTransform(), false);
-		staticBody->ignoreSample = true;
-	}
-
 
 	static GBSimulation simulationWithSingleGrid(GBVector3 anchor = GBVector3(-50, -50, -25), float cellSize = 1.0f, int cellsX = 100, int cellsY = 100, int cellsZ = 50)
 	{
@@ -126,13 +132,6 @@ struct GBSimulation
 		return body;
 	}
 
-	GBQuad* createQuad(GBTransform transform, GBVector3 position, float xSize, float ySize)
-	{
-		quads.push_back(std::make_unique<GBQuad>(transform, position, xSize, ySize));
-		GBQuad* q = quads.back().get();
-		q->id = getId();
-		return q;
-	}
 
 	GBTriangle* createTriangle(GBVector3 a, GBVector3 b, GBVector3 c, bool insertToGrid = true)
 	{
@@ -144,7 +143,6 @@ struct GBSimulation
 			gridMap.insertStaticGeometry(*pStatic);
 		return pTriangle;
 	}
-
 
 	// trianglesArr is a 2D vector of triangles.  The inner vector contains 2 triangles in a strip each creating a
 	// quad to the next spacing
@@ -191,10 +189,7 @@ struct GBSimulation
 		return pTerrain;
 	}
 
-	GBQuad* getQuad(int index)
-	{
-		return (index < quads.size()) ? quads[index].get() : nullptr;
-	}
+
 
 	GBTriangle* getTriangle(int index)
 	{
@@ -228,11 +223,6 @@ struct GBSimulation
 		// remove from flat collider list
 		colliders.erase(std::remove(colliders.begin(), colliders.end(), pCollider), colliders.end());
 
-		// remove from body's collider list
-		if (pCollider->pBody) {
-			auto& bodyColliders = pCollider->pBody->colliders;
-			bodyColliders.erase(std::remove(bodyColliders.begin(), bodyColliders.end(), pCollider), bodyColliders.end());
-		}
 
 		switch (pCollider->type)
 		{
@@ -256,6 +246,44 @@ struct GBSimulation
 			return false;
 		}
 	}
+
+	bool deleteTriangle(GBTriangle* triangle)
+	{
+		bool successful = true;
+		gridMap.removeStaticGeometry(*(GBStaticGeometry*)triangle);
+
+
+		auto it = std::find_if(triangles.begin(), triangles.end(),
+			[&](const auto& up) { return up.get() == triangle; });
+		if (it == triangles.end())
+			successful = false;
+		triangles.erase(it);
+
+		return successful;
+	}
+
+	bool deleteTerrain(GBTerrain* pTerrain)
+	{
+		bool success = true;
+		for (int i = 0; i < pTerrain->triangles.size(); i++)
+		{
+			for (int j = 0; j < pTerrain->triangles[i].size(); j++)
+			{
+				success = deleteTriangle(pTerrain->triangles[i][j]);
+			}
+		}
+
+		gridMap.removeTerrainGrid(*pTerrain->pGrid);
+
+		auto it = std::find_if(terrains.begin(), terrains.end(),
+			[&](const auto& up) { return up.get() == pTerrain; });
+		if (it == terrains.end())
+			success = false;
+		terrains.erase(it);
+
+		return success;
+	}
+
 
 	bool deleteBody(GBBody* pBody)
 	{
@@ -1100,77 +1128,10 @@ struct GBSimulation
 	std::vector<GBManifold> frameStaticManifolds;
 	void handleStaticGeometry(GBBody& body, float deltaTime)
 	{
-		std::vector<GBAABB> occupiedCells = getOccupiedCellAABBs(body);
-
 		GBBoxCollider* pBox = nullptr;
 		GBSphereCollider* pSphere = nullptr;
 		GBCapsuleCollider* pCapsule = nullptr;
 
-		for (int i = 0; i < occupiedCells.size(); i++)
-		{
-			// Right now just handle single colliders
-			if (body.colliders.size() == 1)
-			{
-				GBManifold manifold;
-				GBSATCollisionData data;
-				GBCollider* pCollider = body.colliders[0];
-
-				// Update the static box to the cell location
-				pStaticBox->halfExtents = occupiedCells[i].halfExtents;
-				pStaticBox->pBody->transform.position = occupiedCells[i].center;
-				pStaticBox->pBody->updateColliders();
-
-				switch (pCollider->type)
-				{
-				case ColliderType::Sphere:
-					pSphere = (GBSphereCollider*)pCollider;
-					if (pSphere)
-					{
-						GBContact contact;
-						if (GBManifoldGeneration::GBContactSphereAABB(*pSphere, pStaticBox->aabb, contact))
-						{
-							manifold.addContact(contact, false);
-							manifold.pIncident = pSphere->pBody;
-							manifold.normal = contact.normal;
-							manifold.separation = contact.penetrationDepth;
-							manifold.clampSeparation(slop);
-							pSphere->pBody->frameManifold.combine(manifold);
-							solveDynamicPenetration(manifold, *manifold.pIncident, false);
-							solveStaticSphereManifold(manifold, *pSphere->pBody, deltaTime);
-						}
-					}
-					break;
-				case ColliderType::Box:
-					pBox = (GBBoxCollider*)pCollider;
-					if (pBox)
-					{
-						if (GBManifoldGeneration::GBCollisionBoxBoxSAT(*pStaticBox, *pBox, data))
-						{
-							if (GBManifoldGeneration::GBManifoldBoxBox(*pStaticBox, *pBox, data, manifold))
-							{
-								frameStaticManifolds.push_back(manifold);
-								pBox->pBody->frameManifold.combine(manifold);
-								solveDynamicPenetration(manifold, *manifold.pIncident);
-								solveStaticManifold(manifold, *manifold.pIncident);
-							}
-						}
-					}
-					break;
-
-				case ColliderType::Capsule:
-					pCapsule = (GBCapsuleCollider*)pCollider;
-					if (pCapsule)
-					{
-						if (GBManifoldGeneration::GBManifoldCapsuleBox(*pCapsule, *pStaticBox, manifold))
-						{
-							solveDynamicPenetration(manifold, *manifold.pIncident, false);
-							solveStaticManifold(manifold, *manifold.pIncident);
-						}
-					}
-					break;
-				}
-			}
-		}
 
 		// Now handle the sampled static geometry
 		std::vector<GBStaticGeometry*> sampledStaticGeometry;
@@ -1835,5 +1796,15 @@ struct GBSimulation
 			manifold.pReference->transform.position -= adjustedSeparation * manifold.normal;
 
 		}
+	}
+
+	bool raycast(
+		const GBVector3& rayOrigin,
+		const GBVector3& rayDir,
+		GBContact& outContact,
+		float maxDistance = FLT_MAX,
+		unsigned int mask = 0xFFFFFFFF)
+	{
+		return gridMap.raycast(rayOrigin, rayDir, outContact, maxDistance, mask);
 	}
 };

@@ -374,103 +374,175 @@ struct GBGrid
 		const GBVector3& rayOrigin,
 		const GBVector3& rayDir,
 		GBContact& outContact,
-		float maxDistance = 1e30f)
+		float maxDistance = 1e30f,
+		unsigned int mask = 0xFFFFFFFF)
 	{
+		GBVector3 dir = rayDir.normalized();
+
 		GBContact gridHit;
-		if (!GBManifoldGeneration::GBRaycastAABB(toAABB(), rayOrigin, rayDir, gridHit, maxDistance))
+
+		if (!GBManifoldGeneration::GBRaycastAABB(
+			toAABB(),
+			rayOrigin,
+			dir,
+			gridHit,
+			maxDistance))
+		{
 			return false;
+		}
 
-		// Starting point (clamp to entry)
+		// DDA starts from entry point
 		GBVector3 p = gridHit.position;
-		int ix = (int)((p.x - origin.x) / cellSize);
-		int iy = (int)((p.y - origin.y) / cellSize);
-		int iz = (int)((p.z - origin.z) / cellSize);
 
-		int stepX = rayDir.x > 0 ? 1 : -1;
-		int stepY = rayDir.y > 0 ? 1 : -1;
-		int stepZ = rayDir.z > 0 ? 1 : -1;
+		// IMPORTANT: floorf, not truncation
+		int ix = (int)floorf((p.x - origin.x) / cellSize);
+		int iy = (int)floorf((p.y - origin.y) / cellSize);
+		int iz = (int)floorf((p.z - origin.z) / cellSize);
 
-		auto inv = GBVector3(
-			rayDir.x != 0 ? 1.0f / rayDir.x : 1e30f,
-			rayDir.y != 0 ? 1.0f / rayDir.y : 1e30f,
-			rayDir.z != 0 ? 1.0f / rayDir.z : 1e30f
-		);
+		// Clamp edge cases
+		ix = GBClamp(ix, 0, cellsX - 1);
+		iy = GBClamp(iy, 0, cellsY - 1);
+		iz = GBClamp(iz, 0, cellsZ - 1);
 
-		bool isZero[3];
-		isZero[0] = rayDir.x == 0.0f ? true : false;
-		isZero[1] = rayDir.y == 0.0f ? true : false;
-		isZero[2] = rayDir.z == 0.0f ? true : false;
+		int stepX = (dir.x >= 0.0f) ? 1 : -1;
+		int stepY = (dir.y >= 0.0f) ? 1 : -1;
+		int stepZ = (dir.z >= 0.0f) ? 1 : -1;
 
-		auto nextBoundary = [&](int i, float o, float d)
+		const float INF = std::numeric_limits<float>::infinity();
+
+		float invX = (dir.x != 0.0f) ? 1.0f / dir.x : INF;
+		float invY = (dir.y != 0.0f) ? 1.0f / dir.y : INF;
+		float invZ = (dir.z != 0.0f) ? 1.0f / dir.z : INF;
+
+		auto nextBoundary = [](int cell, int step, float gridOrigin, float cellSize)
 			{
-				return origin.x + (i + (d > 0)) * cellSize;
+				return gridOrigin + (cell + (step > 0 ? 1 : 0)) * cellSize;
 			};
 
-		float tMaxX = (nextBoundary(ix, rayOrigin.x, rayDir.x) - rayOrigin.x) * inv.x;
-		float tMaxY = (origin.y + (iy + (rayDir.y > 0)) * cellSize - rayOrigin.y) * inv.y;
-		float tMaxZ = (origin.z + (iz + (rayDir.z > 0)) * cellSize - rayOrigin.z) * inv.z;
+		float nextX = nextBoundary(ix, stepX, origin.x, cellSize);
+		float nextY = nextBoundary(iy, stepY, origin.y, cellSize);
+		float nextZ = nextBoundary(iz, stepZ, origin.z, cellSize);
 
-		float tDeltaX = cellSize * fabs(inv.x);
-		float tDeltaY = cellSize * fabs(inv.y);
-		float tDeltaZ = cellSize * fabs(inv.z);
+		// IMPORTANT:
+		// relative to ENTRY POINT p
+		float tMaxX = (dir.x != 0.0f)
+			? (nextX - p.x) * invX
+			: INF;
 
-		bool hit = false;
+		float tMaxY = (dir.y != 0.0f)
+			? (nextY - p.y) * invY
+			: INF;
+
+		float tMaxZ = (dir.z != 0.0f)
+			? (nextZ - p.z) * invZ
+			: INF;
+
+		float tDeltaX = (dir.x != 0.0f)
+			? fabsf(cellSize * invX)
+			: INF;
+
+		float tDeltaY = (dir.y != 0.0f)
+			? fabsf(cellSize * invY)
+			: INF;
+
+		float tDeltaZ = (dir.z != 0.0f)
+			? fabsf(cellSize * invZ)
+			: INF;
+
+		float traveledT = 0.0f;
 		float closestT = maxDistance;
+		bool didHit = false;
 
-		if (iz == cellsZ && !isZero[2] && rayDir.z < 0.0f)
-			iz--;
-		if (iy == cellsY && !isZero[1] && rayDir.y < 0.0f)
-			iy--;
-		if (ix == cellsX && !isZero[0] && rayDir.x < 0.0f)
-			ix--;
-
-		while (ix >= 0 && ix < cellsX &&
+		while (
+			ix >= 0 && ix < cellsX &&
 			iy >= 0 && iy < cellsY &&
 			iz >= 0 && iz < cellsZ)
 		{
-			int ind = ix * cellsY * cellsZ + iy * cellsZ + iz;
+			int ind = ix * cellsY * cellsZ +
+				iy * cellsZ +
+				iz;
+
 			GBCell& cell = cells[ind];
 
-			// 🔥 TEST CELL CONTENTS HERE 🔥
-			if (cell.isOccupied)
+			GBContact test;
+			// Test contents
 			{
-				if (GBManifoldGeneration::GBRaycastAABB(cell.toAABB(), rayOrigin, rayDir, outContact, maxDistance))
+				bool hitBody = false;
+				if (!cell.bodies.empty())
 				{
-					return true;
+					if (GBManifoldGeneration::GBRaycastBodiesVector(
+						rayOrigin,
+						dir,
+						cell.bodies,
+						test,
+						mask))
+					{
+						if (test.penetrationDepth < closestT)
+						{
+							didHit = true;
+							outContact = test;
+							closestT = test.penetrationDepth;
+						}
+					}
+				}
+
+				//Test static geometry
+				bool hitStatic = false;
+				if (!cell.staticGeometry.empty())
+				{
+					
+					if (GBManifoldGeneration::GBRaycastStaticGeometryVector(rayOrigin, dir, cell.staticGeometry,
+						test, mask))
+					{
+						if (test.penetrationDepth < closestT)
+						{
+							didHit = true;
+							outContact = test;
+							closestT = test.penetrationDepth;
+						}
+					}
+				}
+
+			}
+
+			// Canonical DDA stepping
+			if (tMaxX < tMaxY)
+			{
+				if (tMaxX < tMaxZ)
+				{
+					ix += stepX;
+					traveledT = tMaxX;
+					tMaxX += tDeltaX;
+				}
+				else
+				{
+					iz += stepZ;
+					traveledT = tMaxZ;
+					tMaxZ += tDeltaZ;
 				}
 			}
 			else
 			{
-				if (cell.bodies.size() > 0 && GBManifoldGeneration::GBRaycastBodiesVector(rayOrigin, rayDir, cell.bodies, outContact))
+				if (tMaxY < tMaxZ)
 				{
-					return true;
+					iy += stepY;
+					traveledT = tMaxY;
+					tMaxY += tDeltaY;
+				}
+				else
+				{
+					iz += stepZ;
+					traveledT = tMaxZ;
+					tMaxZ += tDeltaZ;
 				}
 			}
 
-			if ((tMaxX < tMaxY && tMaxX < tMaxZ) && !isZero[0]) {
-				ix += stepX; tMaxX += tDeltaX;
-			}
-			else if ((tMaxY < tMaxZ || isZero[0]) && !isZero[1]) {  // <-- add fallback
-				iy += stepY; tMaxY += tDeltaY;
-			}
-			else if (!isZero[2]) {
-				iz += stepZ; tMaxZ += tDeltaZ;
-			}
-			else {
-				// fallback if all smaller axes are zero (degenerate ray)
-				if (!isZero[0]) { ix += stepX; tMaxX += tDeltaX; }
-				else if (!isZero[1]) { iy += stepY; tMaxY += tDeltaY; }
-				else if (!isZero[2]) { iz += stepZ; tMaxZ += tDeltaZ; }
-				else break; // truly zero-length ray
-			}
-
-			if (GBMin(tMaxX, GBMin(tMaxY, tMaxZ)) > closestT)
+			if (traveledT > closestT)
 				break;
 		}
 
-		return false;
+		return didHit;
 	}
-
 };
 
 struct GBGridMap
@@ -815,6 +887,19 @@ struct GBGridMap
 		}
 	}
 
+	void removeTerrainGrid(GBGrid& grid)
+	{
+		if (grid.type == GBGridType::TERRAIN)
+		{
+			std::vector<GBGrid*> occupiedGrids;
+			sampleMap(grid.aabb, occupiedGrids, false);
+			for (GBGrid* pGrid : occupiedGrids)
+			{
+				pGrid->removeTerrainGrid(grid);
+			}
+		}
+	}
+
 	void removeBody(GBBody& body)
 	{
 		for (GBCell* cell : body.occupiedCells)
@@ -847,7 +932,20 @@ struct GBGridMap
 		sampleMap(sample, occupiedGrids);
 		for (GBGrid* pGrid : occupiedGrids)
 		{
-			pGrid->removeGeometry(geometry);
+			std::vector<GBGrid*> terrainGrids;
+			
+			pGrid->sampleTerrainGrids(sample, terrainGrids);
+			if (terrainGrids.size() > 0)
+			{
+				for (GBGrid* pTerrainGrid : terrainGrids)
+				{
+					pTerrainGrid->removeGeometry(geometry);
+				}
+			}
+			else
+			{
+				pGrid->removeGeometry(geometry);
+			}
 		}
 	}
 
@@ -862,92 +960,314 @@ struct GBGridMap
 		const GBVector3& rayOrigin,
 		const GBVector3& rayDir,
 		GBContact& outContact,
-		float maxDistance = FLT_MAX)
+		float maxDistance = FLT_MAX,
+		unsigned int mask = 0xFFFFFFFF)
 	{
-		// First, check if ray hits the whole map AABB
-		GBAABB mapAABB = toAABB();
-		GBContact entryContact;
-		if (!GBManifoldGeneration::GBRaycastAABB(mapAABB, rayOrigin, rayDir, entryContact, maxDistance))
-			return false;
 
-		// Compute starting point in grid-map coordinates
+		// Normalize ray
+		GBVector3 dir = rayDir.normalized();
+
+		// Check ray against whole map first
+		GBAABB mapAABB = toAABB();
+
+		GBContact entryContact;
+		if (!GBManifoldGeneration::GBRaycastAABB(
+			mapAABB,
+			rayOrigin,
+			dir,
+			entryContact,
+			maxDistance))
+		{
+			return false;
+		}
+
+		// DDA traversal begins from map entry point
 		GBVector3 p = entryContact.position;
 
 		GBVector3 extents = gridExtents();
-		int gx = (int)((p.x - origin.x) / extents.x);
-		int gy = (int)((p.y - origin.y) / extents.y);
-		int gz = (int)((p.z - origin.z) / extents.z);
 
-		int stepX = rayDir.x > 0 ? 1 : -1;
-		int stepY = rayDir.y > 0 ? 1 : -1;
-		int stepZ = rayDir.z > 0 ? 1 : -1;
+		// IMPORTANT: use floorf, not truncation
+		int gx = (int)floorf((p.x - origin.x) / extents.x);
+		int gy = (int)floorf((p.y - origin.y) / extents.y);
+		int gz = (int)floorf((p.z - origin.z) / extents.z);
 
-		GBVector3 inv(
-			rayDir.x != 0 ? 1.0f / rayDir.x : 1e30f,
-			rayDir.y != 0 ? 1.0f / rayDir.y : 1e30f,
-			rayDir.z != 0 ? 1.0f / rayDir.z : 1e30f
-		);
+		// Clamp to valid range in case entry point lies exactly on boundary
+		gx = GBClamp(gx, 0, gridsX - 1);
+		gy = GBClamp(gy, 0, gridsY - 1);
+		gz = GBClamp(gz, 0, gridsZ - 1);
 
-		bool isZero[3] = { rayDir.x == 0, rayDir.y == 0, rayDir.z == 0 };
+		int stepX = (dir.x >= 0.0f) ? 1 : -1;
+		int stepY = (dir.y >= 0.0f) ? 1 : -1;
+		int stepZ = (dir.z >= 0.0f) ? 1 : -1;
 
-		auto nextBoundary = [&](int i, float o, float d, float gridSize, float originCoord)
+		const float INF = std::numeric_limits<float>::infinity();
+
+		float invX = (dir.x != 0.0f) ? 1.0f / dir.x : INF;
+		float invY = (dir.y != 0.0f) ? 1.0f / dir.y : INF;
+		float invZ = (dir.z != 0.0f) ? 1.0f / dir.z : INF;
+
+		auto nextBoundary = [](int cell, int step, float gridOrigin, float cellSize)
 			{
-				return originCoord + (i + (d > 0)) * gridSize;
+				return gridOrigin + (cell + (step > 0 ? 1 : 0)) * cellSize;
 			};
 
-		float tMaxX = (nextBoundary(gx, rayOrigin.x, rayDir.x, extents.x, origin.x) - rayOrigin.x) * inv.x;
-		float tMaxY = (nextBoundary(gy, rayOrigin.y, rayDir.y, extents.y, origin.y) - rayOrigin.y) * inv.y;
-		float tMaxZ = (nextBoundary(gz, rayOrigin.z, rayDir.z, extents.z, origin.z) - rayOrigin.z) * inv.z;
+		float nextX = nextBoundary(gx, stepX, origin.x, extents.x);
+		float nextY = nextBoundary(gy, stepY, origin.y, extents.y);
+		float nextZ = nextBoundary(gz, stepZ, origin.z, extents.z);
 
-		float tDeltaX = extents.x * fabs(inv.x);
-		float tDeltaY = extents.y * fabs(inv.y);
-		float tDeltaZ = extents.z * fabs(inv.z);
+		// IMPORTANT:
+		// tMax is relative to traversal start point p,
+		// NOT original ray origin
+		float tMaxX = (dir.x != 0.0f)
+			? (nextX - p.x) * invX
+			: INF;
 
+		float tMaxY = (dir.y != 0.0f)
+			? (nextY - p.y) * invY
+			: INF;
+
+		float tMaxZ = (dir.z != 0.0f)
+			? (nextZ - p.z) * invZ
+			: INF;
+
+		float tDeltaX = (dir.x != 0.0f)
+			? fabsf(extents.x * invX)
+			: INF;
+
+		float tDeltaY = (dir.y != 0.0f)
+			? fabsf(extents.y * invY)
+			: INF;
+
+		float tDeltaZ = (dir.z != 0.0f)
+			? fabsf(extents.z * invZ)
+			: INF;
+
+		float traveledT = 0.0f;
 		float closestT = maxDistance;
+		bool didHit = false;
+		std::unordered_set<GBGrid*> terrainGrids;
 
-		// Correct for boundary entry
-		if (gx == gridsX && !isZero[0] && rayDir.x < 0.0f) gx--;
-		if (gy == gridsY && !isZero[1] && rayDir.y < 0.0f) gy--;
-		if (gz == gridsZ && !isZero[2] && rayDir.z < 0.0f) gz--;
-
-		while (gx >= 0 && gx < gridsX &&
+		while (
+			gx >= 0 && gx < gridsX &&
 			gy >= 0 && gy < gridsY &&
 			gz >= 0 && gz < gridsZ)
 		{
 			int gridIdx = gridIndex(gx, gy, gz);
+
 			auto it = grids.find(gridIdx);
 			if (it != grids.end())
 			{
 				GBGrid& grid = it->second;
-				GBContact cellContact;
-				if (grid.raycast(rayOrigin, rayDir, cellContact, maxDistance))
+				GBContact test;
+				if (grid.raycast(rayOrigin, rayDir, test, maxDistance, mask))
 				{
-					outContact = cellContact;
-					return true;
+					if (test.penetrationDepth < closestT)
+					{
+						didHit = true;
+						outContact = test;
+						closestT = test.penetrationDepth;
+					}
+				}
+
+
+				for (GBGrid* terrainGrid : grid.grids)
+				{
+					auto [_, inserted] = terrainGrids.insert(terrainGrid);
+
+					if (inserted)
+					{
+						GBContact terrainTest;
+
+						if (terrainGrid->raycast(
+							rayOrigin,
+							rayDir,
+							terrainTest,
+							maxDistance,
+							mask))
+						{
+							if (terrainTest.penetrationDepth < closestT)
+							{
+								didHit = true;
+								outContact = terrainTest;
+								closestT = terrainTest.penetrationDepth;
+							}
+						}
+					}
 				}
 			}
 
-			// Step to next grid along ray
-			if ((tMaxX < tMaxY && tMaxX < tMaxZ) && !isZero[0]) {
-				gx += stepX; tMaxX += tDeltaX;
+			// Step along smallest boundary distance
+			if (tMaxX < tMaxY)
+			{
+				if (tMaxX < tMaxZ)
+				{
+					gx += stepX;
+					traveledT = tMaxX;
+					tMaxX += tDeltaX;
+				}
+				else
+				{
+					gz += stepZ;
+					traveledT = tMaxZ;
+					tMaxZ += tDeltaZ;
+				}
 			}
-			else if ((tMaxY < tMaxZ || isZero[0]) && !isZero[1]) {
-				gy += stepY; tMaxY += tDeltaY;
-			}
-			else if (!isZero[2]) {
-				gz += stepZ; tMaxZ += tDeltaZ;
-			}
-			else {
-				if (!isZero[0]) { gx += stepX; tMaxX += tDeltaX; }
-				else if (!isZero[1]) { gy += stepY; tMaxY += tDeltaY; }
-				else if (!isZero[2]) { gz += stepZ; tMaxZ += tDeltaZ; }
-				else break;
+			else
+			{
+				if (tMaxY < tMaxZ)
+				{
+					gy += stepY;
+					traveledT = tMaxY;
+					tMaxY += tDeltaY;
+				}
+				else
+				{
+					gz += stepZ;
+					traveledT = tMaxZ;
+					tMaxZ += tDeltaZ;
+				}
 			}
 
-			if (GBMin(tMaxX, GBMin(tMaxY, tMaxZ)) > closestT)
+			if (traveledT > closestT)
 				break;
 		}
 
-		return false;
+		return didHit;
+	}
+
+	std::vector<int> raycastGridIndices(
+		const GBVector3& rayOrigin,
+		const GBVector3& rayDir,
+		float maxDistance = FLT_MAX,
+		unsigned int mask = 0xFFFFFFFF)
+	{
+		std::vector<int> indices;
+
+		// Normalize ray
+		GBVector3 dir = rayDir.normalized();
+
+		// Check ray against whole map first
+		GBAABB mapAABB = toAABB();
+
+		GBContact entryContact;
+		if (!GBManifoldGeneration::GBRaycastAABB(
+			mapAABB,
+			rayOrigin,
+			dir,
+			entryContact,
+			maxDistance))
+		{
+			return indices;
+		}
+
+		// DDA traversal begins from map entry point
+		GBVector3 p = entryContact.position;
+
+		GBVector3 extents = gridExtents();
+
+		// IMPORTANT: use floorf, not truncation
+		int gx = (int)floorf((p.x - origin.x) / extents.x);
+		int gy = (int)floorf((p.y - origin.y) / extents.y);
+		int gz = (int)floorf((p.z - origin.z) / extents.z);
+
+		// Clamp to valid range in case entry point lies exactly on boundary
+		gx = GBClamp(gx, 0, gridsX - 1);
+		gy = GBClamp(gy, 0, gridsY - 1);
+		gz = GBClamp(gz, 0, gridsZ - 1);
+
+		int stepX = (dir.x >= 0.0f) ? 1 : -1;
+		int stepY = (dir.y >= 0.0f) ? 1 : -1;
+		int stepZ = (dir.z >= 0.0f) ? 1 : -1;
+
+		const float INF = std::numeric_limits<float>::infinity();
+
+		float invX = (dir.x != 0.0f) ? 1.0f / dir.x : INF;
+		float invY = (dir.y != 0.0f) ? 1.0f / dir.y : INF;
+		float invZ = (dir.z != 0.0f) ? 1.0f / dir.z : INF;
+
+		auto nextBoundary = [](int cell, int step, float gridOrigin, float sz)
+			{
+				return gridOrigin + (cell + (step > 0 ? 1 : 0)) * sz;
+			};
+
+		float nextX = nextBoundary(gx, stepX, origin.x, extents.x);
+		float nextY = nextBoundary(gy, stepY, origin.y, extents.y);
+		float nextZ = nextBoundary(gz, stepZ, origin.z, extents.z);
+
+		// IMPORTANT:
+		// tMax is relative to traversal start point p,
+		// NOT original ray origin
+		float tMaxX = (dir.x != 0.0f)
+			? (nextX - p.x) * invX
+			: INF;
+
+		float tMaxY = (dir.y != 0.0f)
+			? (nextY - p.y) * invY
+			: INF;
+
+		float tMaxZ = (dir.z != 0.0f)
+			? (nextZ - p.z) * invZ
+			: INF;
+
+		float tDeltaX = (dir.x != 0.0f)
+			? fabsf(extents.x * invX)
+			: INF;
+
+		float tDeltaY = (dir.y != 0.0f)
+			? fabsf(extents.y * invY)
+			: INF;
+
+		float tDeltaZ = (dir.z != 0.0f)
+			? fabsf(extents.z * invZ)
+			: INF;
+
+		float traveledT = 0.0f;
+
+		while (
+			gx >= 0 && gx < gridsX &&
+			gy >= 0 && gy < gridsY &&
+			gz >= 0 && gz < gridsZ)
+		{
+			int gridIdx = gridIndex(gx, gy, gz);
+
+			indices.push_back(gridIdx);
+
+			// Step along smallest boundary distance
+			if (tMaxX < tMaxY)
+			{
+				if (tMaxX < tMaxZ)
+				{
+					gx += stepX;
+					traveledT = tMaxX;
+					tMaxX += tDeltaX;
+				}
+				else
+				{
+					gz += stepZ;
+					traveledT = tMaxZ;
+					tMaxZ += tDeltaZ;
+				}
+			}
+			else
+			{
+				if (tMaxY < tMaxZ)
+				{
+					gy += stepY;
+					traveledT = tMaxY;
+					tMaxY += tDeltaY;
+				}
+				else
+				{
+					gz += stepZ;
+					traveledT = tMaxZ;
+					tMaxZ += tDeltaZ;
+				}
+			}
+
+			if (traveledT > maxDistance)
+				break;
+		}
+
+		return indices;
 	}
 };

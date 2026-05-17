@@ -80,6 +80,12 @@ struct GBContact {
 		position = transform.transformPoint(position);
 		normal = transform.transformDirection(normal);
 	}
+
+
+	GBVector3 getShapecastEndpoint(GBVector3 startPos, GBVector3 dir)
+	{
+		return startPos + dir * penetrationDepth;
+	}
 };
 
 struct GBPlane;
@@ -318,6 +324,14 @@ struct GBManifold
 	bool equalPair(const GBManifold& other) const
 	{
 		return ((pIncident == other.pIncident) && (pReference == other.pReference)) || ((pIncident == other.pReference) && (pReference == other.pIncident));
+	}
+
+	GBBody* getOtherBody(GBBody* knownBody) const
+	{
+		if (pIncident == knownBody)
+			return pReference;
+		else
+			return pIncident;
 	}
 
 	static GBManifold asReference(const GBManifold& other)

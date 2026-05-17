@@ -137,41 +137,63 @@ struct GBManifoldGeneration
 	}
 
 	static bool GBRaycastSphere(
+		const GBVector3& spherePos,
+		const float radius,
+		const GBVector3& rayOrigin,
+		const GBVector3& rayDir,
+		GBContact& outContact,
+		float maxDistance = 1e30f)
+	{
+		GBVector3 m = rayOrigin - spherePos;
+
+		float b = m.dot(rayDir);
+		float c = m.dot(m) - radius * radius;
+
+		if (c > 0.0f && b > 0.0f)
+			return false;
+
+		float discriminant = b * b - c;
+		if (discriminant < 0.0f)
+			return false;
+
+		float sqrtD = sqrtf(discriminant);
+
+		float t0 = -b - sqrtD;
+		float t1 = -b + sqrtD;
+
+		bool inside = t0 < 0.0f;
+
+		float tHit = inside ? 0.0f : t0;
+
+		if (tHit > maxDistance)
+			return false;
+
+		outContact.position = rayOrigin + rayDir * tHit;
+
+		outContact.normal =
+			(outContact.position - spherePos).normalized();
+
+		if (inside)
+		{
+			outContact.normal =
+				(rayOrigin - spherePos).normalized();
+		}
+
+		outContact.penetrationDepth = tHit;
+
+		return true;
+	}
+
+	static bool GBRaycastSphere(
 		const GBSphereCollider& sphere,
 		const GBVector3& rayOrigin,
 		const GBVector3& rayDir,
 		GBContact& outContact,
 		float maxDistance = 1e30f)
 	{
-		GBVector3 m = rayOrigin - sphere.transform.position;
-		float b = m.dot(rayDir);           // projection of m onto ray
-		float c = m.dot(m) - sphere.radius * sphere.radius;
-
-		// Ray origin outside sphere and pointing away
-		if (c > 0.0f && b > 0.0f)
-			return false;
-
-		float discriminant = b * b - c;
-		if (discriminant < 0.0f)
-			return false; // no intersection
-
-		float tHit = -b - sqrtf(discriminant);
-
-		// If inside sphere, clamp tHit to 0
-		bool inside = tHit < 0.0f;
-		tHit = inside ? 0.0f : tHit;
-
-		if (tHit > maxDistance)
-			return false;
-
-		// Fill contact
-		outContact.position = rayOrigin + rayDir * tHit;
-		outContact.normal = (inside ? rayOrigin - sphere.transform.position : outContact.position - sphere.transform.position).normalized();
-		outContact.penetrationDepth = tHit;
-
-		return true;
+		return GBRaycastSphere(sphere.transform.position, sphere.radius,
+			rayOrigin, rayDir, outContact, maxDistance);
 	}
-
 
 	// TODO TEST THIS****************************************************************
 	static bool GBRaycastCapsule(
@@ -297,6 +319,89 @@ struct GBManifoldGeneration
 		float maxDistance = 1e30f)
 	{
 		return GBRaycastOBB(box.transform, box.halfExtents, rayOrigin, rayDir, outContact, maxDistance);
+	}
+
+	static bool GBAABBCastAABB(
+		const GBAABB& cast,
+		const GBVector3& castDir,
+		const GBAABB& box,
+		GBContact& outContact,
+		float maxDistance = 1e30f)
+	{
+		GBAABB temp(box.center, box.halfExtents + cast.halfExtents);
+		return GBRaycastAABB(temp, cast.center, castDir, outContact, maxDistance);
+	}
+
+	static bool GBSphereCastPoint(
+		const GBVector3& spherePos,
+		const float radius,
+		const GBVector3& dir,
+		const GBVector3 point,
+		GBContact& outContact,
+		GBVector3* castEndpoint = nullptr,
+		float maxDistance = 1e30f)
+	{
+		if (GBContactSpherePoint(spherePos, radius, point, outContact))
+		{
+			outContact.penetrationDepth = 0.0f;
+			outContact.position = spherePos;
+			if (castEndpoint)
+			{
+				*castEndpoint = spherePos;
+			}
+			return true;
+		}
+		if (GBRaycastSphere(point, radius, spherePos, dir, outContact, maxDistance))
+		{
+			outContact.position = point;
+			if (castEndpoint)
+			{
+				*castEndpoint = spherePos + dir * outContact.penetrationDepth;
+			}
+			return true;
+		}
+		return false;
+	}
+
+	static bool GBSphereCastEdge(
+		const GBVector3& spherePos,
+		const float radius,
+		const GBVector3& dir,
+		const GBEdge& edge,
+		GBContact& outContact,
+		GBVector3* castEndpoint = nullptr,
+		float maxDistance = 1e30f)
+	{
+		GBCapsuleCollider cap;
+		cap.radius = radius;
+		cap.height = edge.length();
+		cap.transform.position = edge.center();
+		cap.transform.rotation = GBQuaternion::fromToRotation(
+			GBVector3(0, 0, 1),
+			edge.getBOutDirection()
+		);
+		if (GBContactCapsulePoint(cap, spherePos, outContact))
+		{
+			outContact.penetrationDepth = 0.0f;
+			outContact.position = spherePos;
+			if (castEndpoint)
+			{
+				*castEndpoint = spherePos;
+			}
+			return true;
+		}
+		if (GBRaycastCapsule(cap, spherePos, dir, outContact, maxDistance))
+		{
+			GBVector3 endPoint = spherePos + dir * outContact.penetrationDepth;
+			if (castEndpoint)
+			{
+				*castEndpoint = endPoint;
+			}
+			outContact.position = edge.closestPointOnLine(endPoint);
+			edge.isPointOnEdge(outContact.position, &outContact.position);
+			return true;
+		}
+		return false;
 	}
 
 
@@ -2362,6 +2467,16 @@ struct GBManifoldGeneration
 					}
 				}
 				break;
+			case ColliderType::Capsule:
+				if (GBRaycastCapsule(*(GBCapsuleCollider*)pCollider, rayOrigin, rayDir, temp))
+				{
+					if (temp.penetrationDepth < minDist)
+					{
+						closestContact = temp;
+						minDist = temp.penetrationDepth;
+					}
+				}
+				break;
 			}
 		}
 
@@ -2378,7 +2493,8 @@ struct GBManifoldGeneration
 		const GBVector3& rayOrigin,
 		GBVector3 rayDir,
 		const std::vector<GBBody*>& bodies,
-		GBContact& outContact
+		GBContact& outContact,
+		unsigned int mask = 0xFFFFFFFF
 	)
 	{
 		float minDist = FLT_MAX;
@@ -2386,7 +2502,7 @@ struct GBManifoldGeneration
 		GBContact temp;
 		for (GBBody* pBody : bodies)
 		{
-			if (GBRaycastColliderVector(rayOrigin, rayDir, pBody->colliders, temp))
+			if (pBody->isOnLayer(mask) && GBRaycastColliderVector(rayOrigin, rayDir, pBody->colliders, temp))
 			{
 				if (temp.penetrationDepth < minDist)
 				{
@@ -2404,4 +2520,46 @@ struct GBManifoldGeneration
 
 		return false;
 	}
+
+	static bool GBRaycastStaticGeometryVector(
+		const GBVector3& rayOrigin,
+		GBVector3 rayDir,
+		const std::vector<GBStaticGeometry*>& shapes,
+		GBContact& outContact,
+		unsigned int mask = 0xFFFFFFFF
+	)
+	{
+		float minDist = FLT_MAX;
+		GBContact closestContact;
+		GBContact temp;
+		for (GBStaticGeometry* shape: shapes)
+		{
+			if (shape->isOnLayer(mask))
+			{
+				switch (shape->type)
+				{
+				case::GBStaticGeometryType::TRIANGLE:
+				{
+					if (GBRaycastTriangle(*(GBTriangle*)shape, rayOrigin, rayDir, temp))
+					{
+						if (temp.penetrationDepth < minDist)
+						{
+							closestContact = temp;
+							minDist = temp.penetrationDepth;
+						}
+					}
+				}
+				}
+			}
+		}
+
+		if (minDist != FLT_MAX)
+		{
+			outContact = closestContact;
+			return true;
+		}
+
+		return false;
+	}
+
 };
