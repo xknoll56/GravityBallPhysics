@@ -171,7 +171,7 @@ struct GBSimulation
 		pTerrain->spacing = spacing;
 		pTerrain->cellsX = pTerrain->triangles.size();
 		pTerrain->cellsY = pTerrain->triangles[0].size() / 2;
-		pTerrain->cellsZ = (int)(((pTerrain->maxHeight - pTerrain->minHeight) / spacing) + 0.5f) + 1;
+		pTerrain->cellsZ = (int)(pTerrain->maxHeight - pTerrain->minHeight) / spacing + 1;
 
 		pTerrain->pGrid = new GBGrid(origin, spacing, pTerrain->cellsX, pTerrain->cellsY, pTerrain->cellsZ, getId(), GBGridType::TERRAIN);
 
