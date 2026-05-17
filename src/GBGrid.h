@@ -381,8 +381,12 @@ struct GBGrid
 
 		GBContact gridHit;
 
+		const static GBVector3 skin = { 0.0005f, 0.0005f , 0.0005f };
+		GBAABB gridAABB = toAABB();
+		gridAABB.halfExtents += skin;
+		
 		if (!GBManifoldGeneration::GBRaycastAABB(
-			toAABB(),
+			gridAABB,
 			rayOrigin,
 			dir,
 			gridHit,
@@ -559,7 +563,7 @@ struct GBGridMap
 	std::vector<int> occupiedGridIndices;
 	std::map<int, GBGrid> grids;
 
-	GBGridMap(GBVector3 origin = GBVector3(-50.0f, -50.0f, -25.0f), float cellSize = 1.0f, int cellsX = 10, int cellsY = 10, int cellsZ = 10, int gridsX = 10, int gridsY = 10, int gridsZ = 5) :
+	GBGridMap(GBVector3 origin = GBVector3(-50.0f, -50.0f, -25.0f), float cellSize = 1.0f, int cellsX = 20, int cellsY = 20, int cellsZ = 20, int gridsX = 10, int gridsY = 10, int gridsZ = 5) :
 		origin(origin), cellSize(cellSize), cellsX(cellsX), cellsY(cellsY), cellsZ(cellsZ), gridsX(gridsX), gridsY(gridsY), gridsZ(gridsZ)
 	{
 

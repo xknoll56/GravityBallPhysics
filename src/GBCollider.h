@@ -59,18 +59,18 @@ struct GBCollider
 	bool isContacted = false;
 };
 
-struct GBContact {
+struct GBHit {
 
 	GBVector3 position;
 	GBVector3 normal; // From collider A to B
 	float penetrationDepth;
 	GBCollider* pReference;
 	GBCollider* pIncident;
-	GBContact()
+	GBHit()
 		: position(0, 0, 0), normal(0, 0, 0), penetrationDepth(0), pReference(nullptr), pIncident(nullptr)
 	{
 	}
-	GBContact(const GBVector3& position, const GBVector3& normal, float penetrationDepth, GBCollider* pReference = nullptr, GBCollider* pIncident = nullptr)
+	GBHit(const GBVector3& position, const GBVector3& normal, float penetrationDepth, GBCollider* pReference = nullptr, GBCollider* pIncident = nullptr)
 		: position(position), normal(normal), penetrationDepth(penetrationDepth), pReference(pReference), pIncident(pIncident)
 	{
 	}
@@ -87,6 +87,9 @@ struct GBContact {
 		return startPos + dir * penetrationDepth;
 	}
 };
+
+typedef GBHit GBContact;
+typedef GBHit GBRay;   // temporary alias
 
 struct GBPlane;
 
@@ -458,7 +461,7 @@ struct GBBody
 
 
 	// Material properties
-	float restitution = 0.3f;    // bounciness, 0 = no bounce, 1 = full bounce
+	float restitution = 0.1f;    // bounciness, 0 = no bounce, 1 = full bounce
 	float staticFriction = 0.5f; // prevents sliding
 	float dynamicFriction = 0.3f; // sliding friction
 
@@ -533,7 +536,7 @@ struct GBBody
 		torqueAccum = { 0,0,0 };
 
 		// Default material
-		restitution = 0.3f;
+		restitution = 0.1f;
 		staticFriction = 0.5f;
 		dynamicFriction = 0.3f;
 

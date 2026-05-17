@@ -171,7 +171,7 @@ struct GBSimulation
 		pTerrain->spacing = spacing;
 		pTerrain->cellsX = pTerrain->triangles.size();
 		pTerrain->cellsY = pTerrain->triangles[0].size() / 2;
-		pTerrain->cellsZ = (int)(pTerrain->maxHeight - pTerrain->minHeight) / spacing + 1;
+		pTerrain->cellsZ = (int)(((pTerrain->maxHeight - pTerrain->minHeight) / spacing) + 0.5f) + 1;
 
 		pTerrain->pGrid = new GBGrid(origin, spacing, pTerrain->cellsX, pTerrain->cellsY, pTerrain->cellsZ, getId(), GBGridType::TERRAIN);
 
@@ -290,6 +290,10 @@ struct GBSimulation
 		if (!pBody) return false;
 
 		gridMap.removeBody(*pBody);
+
+		enterListeners.erase(pBody->id);
+		stayListeners.erase(pBody->id);
+		exitListeners.erase(pBody->id);
 
 		auto collidersCopy = pBody->colliders;
 		for (GBCollider* c : collidersCopy)
@@ -444,7 +448,7 @@ struct GBSimulation
 		const float percent = 0.3f;
 		const float forceCap = 100.0f;
 		const float slopeRequirement = 0.9f;
-		const float staticManifoldThreshold = 1.0f;
+		const float staticManifoldThreshold = 0.25f;
 		const float impulseCompensation = 3.0f;
 
 		int count = m.numContacts;
@@ -455,24 +459,12 @@ struct GBSimulation
 		if (canTreatAsStatic)
 		{
 			float upness = GBDot(GBVector3::up(), m.normal);
-			if (m.pIncident && m.pIncident->colliders[0]->type == ColliderType::Sphere && GBAbs(vRelN) < staticManifoldThreshold)
+			if (GBAbs(vRelN) < staticManifoldThreshold  && upness > slopeRequirement)
 			{
-				//if(!m.pReference->isOnLayer(LAYER_STATIC_DYNAMIC_SPHERE) || upness>0.95)
-				solveStaticSphereManifold(m, *m.pIncident, dt);
-				//solveStaticCapsuleManifold(m, *m.pIncident);
-				return;
-			}
-			else if (GBAbs(vRelN) < staticManifoldThreshold && m.numContacts > 1 && GBDot(GBVector3::up(), m.normal) > slopeRequirement)
-			{
-				//if(upness>0.95)
-				//	solveStaticManifold(m, *m.pIncident, dt, true);
-				//else if(m.pIncident->awakeTimer >0.5)
-				//	solveStaticManifold(m, *m.pIncident, dt, true);
-				if (upness > 0.95)
-				{
-					solveStaticManifold(m, *m.pIncident);
-				}
-				else if (m.pIncident->awakeTimer > 0.5)
+				if (bodyIsPureColliderType(*m.pIncident, ColliderType::Sphere))
+					solveStaticSphereManifold(m, *m.pIncident, dt);
+	
+				if ( m.pIncident->awakeTimer > 0.25)
 				{
 					solveStaticManifold(m, *m.pIncident);
 				}
@@ -571,7 +563,7 @@ struct GBSimulation
 		if (body.isKinematic)
 			return;
 
-		const float restitution = 0.25f;
+		const float restitution = body.restitution;
 		const static float restingThreshold = 1.0f;
 		const float rollingThreshold = 1.0f; // threshold for rolling without slip
 		const float cornerPushStrength = 0.05f;
@@ -655,7 +647,7 @@ struct GBSimulation
 			return;
 		}
 
-		const float restitution = 0.1f;
+		const float restitution = body.restitution;
 
 		for (int i = 0; i < manifold.numContacts; i++)
 		{
@@ -1406,9 +1398,12 @@ struct GBSimulation
 							bodyA->addDynamicContact(bodyB, true, true);
 							bodyB->addDynamicContact(bodyA, true, true);
 
-							if (manifold.pIncident && manifold.pReference)
+							if (manifold.pIncident)
 							{
 								manifold.pIncident->frameManifold.combine(manifold);
+							}
+							if (manifold.pReference)
+							{
 								GBManifold refManifold = GBManifold::asReference(manifold);
 								manifold.pReference->frameManifold.combine(refManifold);
 							}
@@ -1502,9 +1497,12 @@ struct GBSimulation
 								else
 									solveStaticManifold(manifold, *manifold.pIncident);
 
-								if (manifold.pIncident && manifold.pReference)
+								if (manifold.pIncident)
 								{
 									manifold.pIncident->frameManifold.combine(manifold);
+								}
+								if (manifold.pReference)
+								{
 									GBManifold refManifold = GBManifold::asReference(manifold);
 									manifold.pReference->frameManifold.combine(refManifold);
 								}
@@ -1570,7 +1568,12 @@ struct GBSimulation
 					}
 				}
 
-				float sleepThresholdFactor = 1.1f;
+				float sleepThresholdFactor = 0.75f;
+				if (bodyIsPureColliderType(*body, ColliderType::Box))
+				{
+					if (body->frameManifold.numContacts <= 2)
+						sleepThresholdFactor *= 1.5f;
+				}
 				if (!body->isKinematic && speed < GBBody::sleepThreshold* sleepThresholdFactor && angSpeed < GBBody::sleepThreshold * sleepThresholdFactor)
 				{
 					body->sleepTimer += interDeltaTime;
@@ -1748,7 +1751,7 @@ struct GBSimulation
 		}
 	}
 
-	bool bodyIsPureColliderType(const GBBody& body, const ColliderType type)
+	bool bodyIsPureColliderType(const GBBody& body, const ColliderType type) const
 	{
 		if (body.colliders.size() == 1)
 		{
