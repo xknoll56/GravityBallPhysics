@@ -151,6 +151,7 @@ struct GBSimulation
 		terrains.push_back(std::make_unique<GBTerrain>());
 		GBTerrain* pTerrain = terrains.back().get();
 		GBVector3 origin = { FLT_MAX, FLT_MAX, FLT_MAX };
+		GBVector3 max = { 0,0,0 };
 		pTerrain->triangles.reserve(trianglesArr.size());
 		for (const std::vector<GBTriangle> tris : trianglesArr)
 		{
@@ -164,14 +165,17 @@ struct GBSimulation
 					pTerrain->minHeight = GBMin(pTerrain->minHeight, vert.z);
 					pTerrain->maxHeight = GBMax(pTerrain->maxHeight, vert.z);
 					origin = GBMin(origin, vert);
+					max = GBMax(max, vert);
 				}
 			}
 		}
 
+		GBVector3 sizes = max - origin;
+
 		pTerrain->spacing = spacing;
-		pTerrain->cellsX = pTerrain->triangles.size();
-		pTerrain->cellsY = pTerrain->triangles[0].size() / 2;
-		pTerrain->cellsZ = (int)(pTerrain->maxHeight - pTerrain->minHeight) / spacing + 1;
+		pTerrain->cellsX = sizes.x / spacing;
+		pTerrain->cellsY = sizes.y / spacing;
+		pTerrain->cellsZ = std::ceil((pTerrain->maxHeight - pTerrain->minHeight) / spacing) + 1;
 
 		pTerrain->pGrid = new GBGrid(origin, spacing, pTerrain->cellsX, pTerrain->cellsY, pTerrain->cellsZ, getId(), GBGridType::TERRAIN);
 
@@ -181,6 +185,7 @@ struct GBSimulation
 			{
 				GBAABB triAABB = pTri->toAABB();
 				triAABB.grow(-0.01f * spacing);
+				triAABB.halfExtents = GBMax(triAABB.halfExtents, GBVector3{ 0.01f,0.01f,0.01f });
 				pTerrain->pGrid->insertStaticGeometry(triAABB, *(GBStaticGeometry*)pTri);
 			}
 		}
@@ -456,7 +461,7 @@ struct GBSimulation
 		GBVector3 dv = B.velocity - A.velocity;
 		float vRelN = GBDot(dv, m.normal);
 		//if (!m.isEdge && GBDot(GBVector3::up(), m.normal) > 0.90f && m.numContacts > 1 && GBAbs(vRelN) < 1.0f)
-		if (canTreatAsStatic)
+		if (canTreatAsStatic && !A.isKinematic)
 		{
 			float upness = GBDot(GBVector3::up(), m.normal);
 			if (GBAbs(vRelN) < staticManifoldThreshold  && upness > slopeRequirement)
@@ -488,6 +493,11 @@ struct GBSimulation
 			GBVector3 rB = c.position - B.transform.position;
 
 			GBVector3 vA = A.velocity + GBCross(A.angularVelocity, rA);
+			if (A.isKinematic)
+			{
+				vA = A.realVelocity(dt) + GBCross(A.realAngularVelocity(dt), rA);
+				B.wake();
+			}
 			GBVector3 vB = B.velocity + GBCross(B.angularVelocity, rB);
 			GBVector3 vRel = vB - vA;
 
@@ -633,7 +643,7 @@ struct GBSimulation
 	{
 		if (manifold.numContacts == 0 || body.isKinematic)
 		{
-			if (body.isPlayerController)
+			if (body.useGravity)
 			{
 				float slope = GBDot(GBVector3::up(), manifold.normal);
 
@@ -1276,6 +1286,7 @@ struct GBSimulation
 	GBVector3 gravity = GBVector3(0, 0, -10.0f);
 	uint64_t frame = 0;
 	static constexpr float maxPenetration = 0.1f;
+	const float wakeThreshold = 0.3f;
 	const float slop = 0.05f;
 	std::unordered_map<BodyPair, GBManifold, BodyPairHash> pairManifolds;
 	// ------------------------------------------------------------
@@ -1295,6 +1306,7 @@ struct GBSimulation
 			GBBody* body = rb.get();
 			body->isGrounded = false;
 			body->isGroundedCount = 0;
+			body->frameManifold.clear();
 		}
 
 		frameStaticManifolds.clear();
@@ -1329,7 +1341,7 @@ struct GBSimulation
 					body->angularVelocity = { 0,0,0 };
 				}
 
-				if (!body->isSleeping && (!body->isKinematic || body->isPlayerController))
+				if (!body->isSleeping && (body->useGravity))
 					body->addForce(gravity * body->mass);
 				body->update(interDeltaTime);
 				body->clearContactedBodies();
@@ -1393,10 +1405,10 @@ struct GBSimulation
 							{
 								solveDynamicPenetrationEqually(manifold);
 							}
-							solveDynamicManifold(manifold, *manifold.pIncident, *manifold.pReference, interDeltaTime, true);
+							solveDynamicManifold(manifold, *manifold.pIncident, *manifold.pReference, interDeltaTime, !manifold.pIncident->isKinematic);
 
-							bodyA->addDynamicContact(bodyB, true, true);
-							bodyB->addDynamicContact(bodyA, true, true);
+							bodyA->addDynamicContact(bodyB);
+							bodyB->addDynamicContact(bodyA);
 
 							if (manifold.pIncident)
 							{
@@ -1474,11 +1486,7 @@ struct GBSimulation
 							}
 							dynamicBody->addStaticContact(staticBody);
 
-							bool wakeSleeping = false;
-							static const float wakeThreshold = 0.055f;
-							if (data.minOverlap > wakeThreshold)
-								wakeSleeping = true;
-							staticBody->addDynamicContact(dynamicBody, wakeSleeping, true);
+							staticBody->addDynamicContact(dynamicBody);
 							if (manifold.numContacts > 0)
 							{
 
@@ -1534,69 +1542,43 @@ struct GBSimulation
 				float speed = body->velocity.length();
 				float angSpeed = body->angularVelocity.length();
 
-				bool staticBelow = false;
-				for (int i = 0; i < body->staticBodies.size(); i++)
+				if (bodyIsPureColliderType(*body, ColliderType::Box) &&
+					body->frameManifold.numContacts > 1 && body->hasStaticAttachment())
 				{
-					GBBody* other = body->staticBodies[i];
-					if (other)
-					{
-						if (other->transform.position.z < body->transform.position.z)
-						{
-							staticBelow = true;
-							break;
-						}
-					}
+
+					float damping = 0.995f - 0.01* body->frameManifold.numContacts;
+
+					body->velocity *= damping;
+					body->angularVelocity *= damping;
 				}
-				for (int i = 0; i < body->staticGeometries.size(); i++)
+				else
 				{
-					GBStaticGeometry* pStatic = body->staticGeometries[i];
-					if (pStatic)
-					{
-						if (pStatic->type == GBStaticGeometryType::TRIANGLE)
-						{
-							GBTriangle* pTri = (GBTriangle*)pStatic;
-							GBVector3 upNormal = pTri->normal;
-							if (GBDot(upNormal, GBVector3::up()) < 0)
-								upNormal *= -1.0f;
-							GBVector3 dp = body->transform.position - pTri->vertices[0];
-							if (GBDot(dp, upNormal) > 0)
-							{
-								staticBelow = true;
-								break;
-							}
-						}
-					}
+					float damping = 0.9998f;
+
+					body->velocity *= damping;
+					body->angularVelocity *= damping;
 				}
 
-				float sleepThresholdFactor = 0.75f;
-				if (bodyIsPureColliderType(*body, ColliderType::Box))
-				{
-					if (body->frameManifold.numContacts <= 2)
-						sleepThresholdFactor *= 1.5f;
-				}
-				if (!body->isKinematic && speed < GBBody::sleepThreshold* sleepThresholdFactor && angSpeed < GBBody::sleepThreshold * sleepThresholdFactor)
+				if (!body->isKinematic && speed < GBBody::sleepThreshold 
+					&& angSpeed < GBBody::sleepThreshold)
 				{
 					body->sleepTimer += interDeltaTime;
 
-					// Linear damping
-					body->velocity *= 0.98f;
 
-					// Angular damping
-					body->angularVelocity *= 0.98f;
-
-					if (staticBelow && body->sleepTimer >= GBBody::sleepTime)
+					if (body->sleepTimer >= GBBody::sleepTime)
 					{
 						body->isSleeping = true;
 						body->velocity = GBVector3::zero();
 						body->angularVelocity = GBVector3::zero();
 					}
 				}
-				else
+				else if(speed > wakeThreshold && angSpeed > wakeThreshold)
 				{
 					// moving, reset sleep
 					body->isSleeping = false;
 					body->sleepTimer = 0.0f;
 					body->awakeTimer += interDeltaTime;
+					body->wakeIsland();
 				}
 			}
 			frame++;
@@ -1770,6 +1752,8 @@ struct GBSimulation
 		}
 		return false;
 	}
+
+
 
 	// Wrapper to call recursion
 	void solveDynamicPenetration(GBManifold& manifold, GBBody& root, bool propogate = true)

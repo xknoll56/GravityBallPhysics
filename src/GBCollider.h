@@ -352,6 +352,8 @@ struct GBManifold
 
 	inline void pruneBehindPlane(const GBPlane& plane);
 
+	void pruneOutsideAABB(GBAABB aabb, float epsilon = 1e-5);
+
 	inline void pruneWithNormal(float epsilon = 1e-5);
 
 	void correctPenetrations()
@@ -510,6 +512,7 @@ struct GBBody
 	bool skipSolverForBody = false;
 
 	bool isKinematic = false;
+	bool useGravity = true;
 
 	std::vector<GBJointConstraint> joints;
 
@@ -657,7 +660,7 @@ struct GBBody
 
 	bool isTrigger = false;
 
-	void wakeRecursive(std::unordered_set<GBBody*>& visited)
+	void wakeRecursive(std::unordered_set<GBBody*>& visited, int& depth, const int maxDepth)
 	{
 		if (visited.count(this)) return;
 		visited.insert(this);
@@ -667,20 +670,26 @@ struct GBBody
 		staticGeometries.clear();
 		isGrounded = false;
 
+
+		depth += 1;
+		if (depth > maxDepth)
+			return;
+
 		for (GBBody* b : dynamicBodies)
 			if (b && !b->isStatic)
-				b->wakeRecursive(visited);
+				b->wakeRecursive(visited,depth, maxDepth);
 
 		for (GBBody* b : staticBodies)
 			if (b && !b->isStatic)
-				b->wakeRecursive(visited);
+				b->wakeRecursive(visited, depth, maxDepth);
 	}
 
 	// wrapper
-	void wakeIsland()
+	void wakeIsland(const int maxDepth = 2)
 	{
 		std::unordered_set<GBBody*> visited;
-		wakeRecursive(visited);
+		int depth = 0;
+		wakeRecursive(visited, depth, maxDepth);
 	}
 
 	bool hasStaticAttachmentRecursive(std::unordered_set<const GBBody*>& visited) const
@@ -808,8 +817,6 @@ struct GBBody
 
 		// Sync colliders
 		updateColliders();
-
-		frameManifold.reset();
 	}
 
 
@@ -1114,6 +1121,20 @@ void GBManifold::pruneBehindPlane(const GBPlane& plane)
 	for (int i = 0; i < numContacts; i++)
 	{
 		if (GBDot(contacts[i].position - plane.point, plane.normal) < 0)
+			pruned.addContact(contacts[i]);
+	}
+	clear();
+	combine(pruned);
+}
+
+void GBManifold::pruneOutsideAABB(GBAABB aabb, float epsilon)
+{
+	GBManifold pruned;
+	pruned.useNormal(*this);
+	aabb.halfExtents += {epsilon, epsilon, epsilon};
+	for (int i = 0; i < numContacts; i++)
+	{
+		if (aabb.isPointContainedWithError(contacts[i].position, epsilon))
 			pruned.addContact(contacts[i]);
 	}
 	clear();
@@ -1516,6 +1537,16 @@ struct GBBoxCollider : public GBCollider {
 	float volume() const  override
 	{
 		return halfExtents.x * halfExtents.y * halfExtents.z;
+	}
+
+	bool isPointContained(const GBVector3& point, float epsilon = 1e-4f)
+	{
+		const GBVector3 dp = point - transform.position;
+
+		return
+			GBAbs(GBDot(transform.forward(), dp)) <= halfExtents.x * (1.0f + epsilon) &&
+			GBAbs(GBDot(transform.right(), dp)) <= halfExtents.y * (1.0f + epsilon) &&
+			GBAbs(GBDot(transform.up(), dp)) <= halfExtents.z * (1.0f + epsilon);
 	}
 };
 
