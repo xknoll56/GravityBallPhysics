@@ -364,6 +364,14 @@ struct GBManifold
 		}
 	}
 
+
+	GBVector3 getFeatureBasedNormal(const int i) const
+	{
+		if (numContacts < 3)
+			return contacts[i].normal;
+		else
+			return normal;
+	}
 };
 
 struct GBStaticGeometry;
@@ -474,8 +482,6 @@ struct GBBody
 	bool isSleeping = false;
 	float sleepTimer = 0.0f;
 
-	static constexpr float sleepThreshold = 0.25f; // linear+angular speed below which sleep is considered
-	static constexpr float sleepTime = 0.1f;       // time to accumulate before sleeping
 	
 	bool onAwake = false;
 	bool isStatic = false;

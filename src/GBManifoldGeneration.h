@@ -2443,6 +2443,7 @@ struct GBManifoldGeneration
 		float minDist = FLT_MAX;
 		GBContact closestContact;
 		GBContact temp;
+		GBCollider* pHitCollider = nullptr;
 		for (GBCollider* pCollider : colliders)
 		{
 			switch (pCollider->type)
@@ -2454,6 +2455,7 @@ struct GBManifoldGeneration
 					{
 						closestContact = temp;
 						minDist = temp.penetrationDepth;
+						pHitCollider = pCollider;
 					}
 				}
 				break;
@@ -2464,6 +2466,7 @@ struct GBManifoldGeneration
 					{
 						closestContact = temp;
 						minDist = temp.penetrationDepth;
+						pHitCollider = pCollider;
 					}
 				}
 				break;
@@ -2474,6 +2477,7 @@ struct GBManifoldGeneration
 					{
 						closestContact = temp;
 						minDist = temp.penetrationDepth;
+						pHitCollider = pCollider;
 					}
 				}
 				break;
@@ -2483,6 +2487,8 @@ struct GBManifoldGeneration
 		if (minDist != FLT_MAX)
 		{
 			outContact = closestContact;
+			if (pHitCollider)
+				outContact.pIncident = pHitCollider;
 			return true;
 		}
 

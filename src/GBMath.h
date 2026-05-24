@@ -229,6 +229,10 @@ inline GBVector3 GBAbs(GBVector3 v)
     return { GBAbs(v.x), GBAbs(v.y), GBAbs(v.z) };
 }
 
+inline float GBLerp(const float& a, const float& b, float t)
+{
+    return a + (b - a) * t;
+}
 
 inline GBVector3 GBLerp(const GBVector3& a, const GBVector3& b, float t)
 {
