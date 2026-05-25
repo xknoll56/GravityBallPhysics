@@ -469,6 +469,8 @@ struct GBBody
 	GBVector3 forceAccum;          // accumulated force
 	GBVector3 torqueAccum;         // accumulated torque
 
+	GBVector3 prevFrameVelocity;
+	GBVector3 prevFrameAngularVelocity;
 
 	// Material properties
 	float restitution = 0.1f;    // bounciness, 0 = no bounce, 1 = full bounce
@@ -518,6 +520,7 @@ struct GBBody
 	bool skipSolverForBody = false;
 
 	bool isKinematic = false;
+	bool ignoreKinematicVelocityClamp = false;
 	bool useGravity = true;
 
 	std::vector<GBJointConstraint> joints;
@@ -538,11 +541,17 @@ struct GBBody
 	GBBody(float mass = 1.0f, const GBVector3& halfExtents = { 0.5f, 0.5f, 0.5f })
 		: mass(mass)
 	{
+
+		GBVector3 zero = GBVector3::zero();
 		invMass = (mass > 0.0f) ? 1.0f / mass : 0.0f;
-		velocity = { 0,0,0 };
-		angularVelocity = { 0,0,0 };
-		forceAccum = { 0,0,0 };
-		torqueAccum = { 0,0,0 };
+		velocity = zero;
+		angularVelocity = zero;
+		forceAccum = zero;
+		torqueAccum = zero;
+
+		prevFrameVelocity = zero;
+		prevFrameAngularVelocity = zero;
+
 
 		// Default material
 		restitution = 0.1f;
@@ -956,13 +965,16 @@ inline void GBManifold::flipAndSwapIfOnTop()
 
 inline void GBManifold::flipAndSwapIfContactOnTop(GBVector3 manifoldNormal)
 {
-	if (GBDot(manifoldNormal, GBVector3::up()) < 0.00f)
-		manifoldNormal *= -1.0f;
-	float projRef = GBDot(manifoldNormal, pReference->transform.position);
-	float projInc = GBDot(manifoldNormal, pIncident->transform.position);
-	if (projInc < projRef)
+	if (pReference && pIncident)
 	{
-		flipAndSwap();
+		if (GBDot(manifoldNormal, GBVector3::up()) < 0.00f)
+			manifoldNormal *= -1.0f;
+		float projRef = GBDot(manifoldNormal, pReference->transform.position);
+		float projInc = GBDot(manifoldNormal, pIncident->transform.position);
+		if (projInc < projRef)
+		{
+			flipAndSwap();
+		}
 	}
 }
 
@@ -1063,6 +1075,19 @@ struct GBCapsuleCollider : public GBCollider {
 	float volume() const  override
 	{
 		return GB_PI * radius * radius * ((4.0f / 3.0f) * radius + height);
+	}
+
+	static GBCapsuleCollider capsuleFromEdge(const GBEdge& edge, float radius = 0.5f)
+	{
+		GBCapsuleCollider cc;
+		cc.height = edge.length();
+		cc.transform.position = edge.center();
+		cc.transform.rotation = GBQuaternion::fromToRotation(
+			GBVector3(0, 0, 1),
+			edge.getBOutDirection()
+		);
+		cc.radius = radius;
+		return cc;
 	}
 };
 

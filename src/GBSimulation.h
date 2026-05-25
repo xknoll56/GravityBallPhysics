@@ -451,7 +451,7 @@ struct GBSimulation
 
 		const float restitution = 0.05f;
 		const float percent = 0.3f;
-		const float forceCap = 100.0f;
+		const float forceCap = 250.0f;
 		const float slopeRequirement = 0.9f;
 		const float staticManifoldThreshold = 0.05f;
 
@@ -540,11 +540,31 @@ struct GBSimulation
 
 			if (A.isKinematic)
 			{
-				if (A.useGravity)
+				float slope = GBDot(GBVector3::up(), m.normal);
+				float vnA = GBDot(A.velocity, m.normal);
+
+				static const float minGroundVelocity = 0.0f;
+				if (slope >= A.playerSlopeValue && vnA < minGroundVelocity)
 				{
-					GBVector3 impulseForce = impulse * A.invMass * aModifier;
-					float gImpulse = GBDot(impulseForce, GBVector3::up());
-					A.velocity -= GBVector3(0, 0, gImpulse);
+					// Grounded on a walkable surface
+					// clamp the verticle velocity to  the minimum ground velocity.
+					// If we clamp it to zero, running down slopes doesn't work
+					A.velocity.z = minGroundVelocity;
+				}
+			}
+
+			if (B.isKinematic)
+			{
+				float slope = GBDot(GBVector3::up(), m.normal);
+				float vnB = GBDot(B.velocity, m.normal);
+
+				static const float minGroundVelocity = 0.0f;
+				if (slope >= B.playerSlopeValue && vnB < minGroundVelocity)
+				{
+					// Grounded on a walkable surface
+					// clamp the verticle velocity to  the minimum ground velocity.
+					// If we clamp it to zero, running down slopes doesn't work
+					A.velocity.z = minGroundVelocity;
 				}
 			}
 
@@ -666,11 +686,13 @@ struct GBSimulation
 				float slope = GBDot(GBVector3::up(), manifold.normal);
 				float vn = GBDot(body.velocity, manifold.normal);
 
-				if (slope >= body.playerSlopeValue && vn < 0.0f)
+				static const float minGroundVelocity = 0.0f;
+				if (slope >= body.playerSlopeValue && vn < minGroundVelocity)
 				{
 					// Grounded on a walkable surface
-					// Stop vertical velocity
-					body.velocity.z = 0;
+					// clamp the verticle velocity to  the minimum ground velocity.
+					// If we clamp it to zero, running down slopes doesn't work
+					body.velocity.z = minGroundVelocity;
 				}
 			}
 			return;
@@ -1094,13 +1116,6 @@ struct GBSimulation
 		gridMap.sampleStaticGeometry(body.aabb, sampledStaticGeometry);
 		gridMap.sampleTerrainGridStaticGeometry(body.aabb, sampledStaticGeometry);
 
-		pBox = nullptr;
-		pSphere = nullptr;
-		pCapsule = nullptr;
-
-		GBManifold combinedManifold;
-		combinedManifold.separation = 0.0f;
-		int numManifolds = 0;
 
 		for (GBStaticGeometry* pGeometry : sampledStaticGeometry)
 		{
@@ -1108,28 +1123,38 @@ struct GBSimulation
 			if (pTriangle)
 			{
 				// Right now just handle single colliders
-				if (body.colliders.size() == 1)
+				for(int colIt = 0; colIt<body.colliders.size(); colIt++)
 				{
+					pBox = nullptr;
+					pSphere = nullptr;
+					pCapsule = nullptr;
+
+					GBManifold combinedManifold;
+					combinedManifold.separation = 0.0f;
+					int numManifolds = 0;
+
+
 					GBSATCollisionData data;
-					GBCollider* pCollider = body.colliders[0];
+					GBCollider* pCollider = body.colliders[colIt];
 					switch (pCollider->type)
 					{
 					case ColliderType::Sphere:
 						pSphere = (GBSphereCollider*)pCollider;
 						if (pSphere)
 						{
-							GBContact contact;
 							GBManifold manifold;
-							if (GBManifoldGeneration::GBContactSphereTriangle(*pSphere, *pTriangle, contact))
+							if (GBManifoldGeneration::GBManifoldSphereTriangle(*pSphere, *pTriangle, manifold))
 							{
-								manifold.addContact(contact, false);
-								manifold.pIncident = pSphere->pBody;
-								manifold.normal = contact.normal;
-								manifold.separation = contact.penetrationDepth;
-								manifold.clampSeparation(manifold.separation - slop);
-								pSphere->pBody->frameManifold.combine(manifold);
-								solveDynamicPenetration(manifold, *manifold.pIncident);
-								solveStaticSphereManifold(manifold, *pSphere->pBody, deltaTime);
+								if (manifold.numContacts > 0)
+								{
+									combinedManifold.normal += manifold.normal;
+									numManifolds++;
+									combinedManifold.combine(manifold);
+									if (manifold.separation > combinedManifold.separation)
+									{
+										combinedManifold.separation = manifold.separation;
+									}
+								}
 							}
 						}
 						break;
@@ -1175,31 +1200,44 @@ struct GBSimulation
 						}
 						break;
 					}
+
+					if (pBox)
+					{
+						if (combinedManifold.numContacts > 0)
+						{
+							combinedManifold.clampSeparation(slop);
+							pBox->pBody->frameManifold.combine(combinedManifold);
+							solveDynamicPenetration(combinedManifold, *combinedManifold.pIncident);
+							solveStaticManifold(combinedManifold, *combinedManifold.pIncident);
+						}
+					}
+					else if (pCapsule)
+					{
+						if (combinedManifold.numContacts > 0)
+						{
+							combinedManifold.pIncident = pCapsule->pBody;
+							combinedManifold.normal *= 1.0f / numManifolds;
+							combinedManifold.normal = GBNormalize(combinedManifold.normal);
+							solveDynamicPenetration(combinedManifold, *combinedManifold.pIncident);
+							solveStaticManifold(combinedManifold, *combinedManifold.pIncident);
+						}
+					}
+					else if (pSphere)
+					{
+						if (combinedManifold.numContacts > 0)
+						{
+							combinedManifold.pIncident = pSphere->pBody;
+							combinedManifold.normal *= 1.0f / numManifolds;
+							combinedManifold.normal = GBNormalize(combinedManifold.normal);
+							solveDynamicPenetration(combinedManifold, *combinedManifold.pIncident);
+							solveStaticManifold(combinedManifold, *combinedManifold.pIncident);
+						}
+					}
 				}
 			}
 		}
 
-		if (pBox)
-		{
-			if (combinedManifold.numContacts > 0)
-			{
-				combinedManifold.clampSeparation(slop);
-				pBox->pBody->frameManifold.combine(combinedManifold);
-				solveDynamicPenetration(combinedManifold, *combinedManifold.pIncident);
-				solveStaticManifold(combinedManifold, *combinedManifold.pIncident);
-			}
-		}
-		else if (pCapsule)
-		{
-			combinedManifold.pIncident = pCapsule->pBody;
-			combinedManifold.normal *= 1.0f / numManifolds;
-			combinedManifold.normal = GBNormalize(combinedManifold.normal);
-			if (combinedManifold.numContacts > 0)
-			{
-				solveDynamicPenetration(combinedManifold, *combinedManifold.pIncident, false);
-				solveStaticManifold(combinedManifold, *combinedManifold.pIncident);
-			}
-		}
+
 	}
 
 	struct BodyPair
@@ -1264,6 +1302,9 @@ struct GBSimulation
 			body->isGrounded = false;
 			body->isGroundedCount = 0;
 			body->frameManifold.clear();
+			body->prevFrameVelocity = body->velocity;
+			body->prevFrameAngularVelocity = body->angularVelocity;
+			body->ignoreKinematicVelocityClamp = false;
 		}
 
 		frameStaticManifolds.clear();
@@ -1354,21 +1395,13 @@ struct GBSimulation
 
 								curPairManifolds[pair] = manifold;
 
-								if (bodyIsPureColliderType(*manifold.pIncident, ColliderType::Box)
-									&& bodyIsPureColliderType(*manifold.pReference, ColliderType::Box))
-								{
-									manifold.flipAndSwapIfContactOnTop(manifold.normal);
-									solveDynamicPenetration(manifold, *manifold.pIncident);
-								}
-								else
-								{
-									solveDynamicPenetrationEqually(manifold);
-								}
+								manifold.flipAndSwapIfContactOnTop(manifold.normal);
+								solveDynamicPenetration(manifold, *manifold.pIncident);
 								solveDynamicManifold(manifold, *manifold.pIncident, *manifold.pReference, interDeltaTime, !manifold.pIncident->isKinematic);
 
 								bool awaken = manifold.separation > maxPenetration;
-								bodyA->addDynamicContact(bodyB, awaken, false);
-								bodyB->addDynamicContact(bodyA, awaken, false);
+								bodyA->addDynamicContact(bodyB, false, awaken);
+								bodyB->addDynamicContact(bodyA, false, awaken);
 
 								if (manifold.pIncident)
 								{
@@ -1504,24 +1537,27 @@ struct GBSimulation
 				float speed = body->velocity.length();
 				float angSpeed = body->angularVelocity.length();
 
-				if (bodyIsPureColliderType(*body, ColliderType::Box) &&
-					body->frameManifold.numContacts > 1 && body->hasStaticAttachment()
-					&& body->sleepTimer >= 0.5f*sleepTime)
+				if (body->hasStaticAttachment())
 				{
+					if (bodyIsPureColliderType(*body, ColliderType::Box) &&
+						body->frameManifold.numContacts > 1 && body->hasStaticAttachment()
+						&& body->sleepTimer >= 0.5f * sleepTime)
+					{
 
-					float damping = 0.995f - 0.01* body->frameManifold.numContacts;
-					float t = 1.0f - exp(-0.8f * body->frameManifold.numContacts);
-					damping = GBLerp(0.9998f, 0.94f, t);
+						float damping = 0.995f - 0.01 * body->frameManifold.numContacts;
+						float t = 1.0f - exp(-0.8f * body->frameManifold.numContacts);
+						damping = GBLerp(0.9998f, 0.94f, t);
 
-					body->velocity *= damping;
-					body->angularVelocity *= damping;
-				}
-				else
-				{
-					float damping = 0.9998f;
+						body->velocity *= damping;
+						body->angularVelocity *= damping;
+					}
+					else
+					{
+						float damping = 0.9998f;
 
-					body->velocity *= damping;
-					body->angularVelocity *= damping;
+						body->velocity *= damping;
+						body->angularVelocity *= damping;
+					}
 				}
 
 				if (!body->isKinematic && speed <  sleepThreshold 
@@ -1586,6 +1622,28 @@ struct GBSimulation
 			{
 				body->isGrounded = true;
 			}
+
+			if (body->isKinematic && !body->ignoreKinematicVelocityClamp)
+			{
+
+				float verticleSpeed = body->velocity.z;
+				body->velocity = body->prevFrameVelocity;
+				body->angularVelocity = body->prevFrameAngularVelocity;
+				if (body->useGravity)
+				{
+					body->velocity.z = verticleSpeed;
+				}
+			}
+		}
+	}
+
+	void init(int iters = 10)
+	{
+		const float fixedDt = 1.0f / 60.0f;
+
+		for (int i = 0; i < iters; i++)
+		{
+			step(fixedDt);
 		}
 	}
 
@@ -1663,7 +1721,7 @@ struct GBSimulation
 	}
 
 
-	const static int maxRecurseDepth = 5;
+	const static int maxRecurseDepth = 2;
 	void solveDynamicPenetrationRecurse(const GBManifold& manifold, GBBody& root, std::unordered_set<GBBody*>& visited, bool propogate = true)
 	{
 		if (visited.find(&root) != visited.end()) return; // already moved
@@ -1682,14 +1740,7 @@ struct GBSimulation
 		{
 			for (GBBody* child : root.dynamicBodies)
 			{
-				if (bodyIsPureColliderType(*child, ColliderType::Sphere))
-				{
-					if (GBDot(manifold.normal, GBVector3::up()) > 0.80f)
-					{
-						solveDynamicPenetrationRecurse(manifold, *child, visited);
-					}
-				}
-				if (GBDot(manifold.normal, GBVector3::up()) > 0.80f && GBDot(child->velocity, GBVector3::up()) > 0.0f)
+				if (GBDot(manifold.normal, GBVector3::up()) > 0.00f && GBDot(child->velocity, GBVector3::up()) > 0.0f)
 				{
 					solveDynamicPenetrationRecurse(manifold, *child, visited);
 

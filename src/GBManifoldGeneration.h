@@ -1288,6 +1288,23 @@ struct GBManifoldGeneration
 		return false;
 	}
 
+	static bool GBManifoldSphereTriangle(
+		const GBSphereCollider& sphere,
+		const GBTriangle& triangle,
+		GBManifold& outManifold)
+	{
+		GBContact c;
+		if (GBContactSphereTriangle(sphere, triangle, c))
+		{
+			outManifold.addContact(c);
+			outManifold.pIncident = sphere.pBody;
+			outManifold.separation = c.penetrationDepth;
+			outManifold.normal = c.normal;
+			return true;
+		}
+		return false;
+	}
+
 	static bool GBManifoldSphereBoxPatch(
 		const GBSphereCollider& sphere,
 		const GBBoxCollider& box,
