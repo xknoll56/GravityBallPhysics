@@ -39,9 +39,10 @@ struct GBCell
 		GBVector3 center = getCenter();
 		return GBAABB(center, halfExtents);
 	}
-	std::vector<GBBody*> bodies;
+
 	std::vector<GBStaticGeometry*> staticGeometry;
 	std::vector<GBGrid*> grids;
+	std::vector<GBCollider*> colliders;
 };
 
 enum GBGridType
@@ -59,7 +60,6 @@ struct GBGrid
 	int cellsZ;            // Number of cells along the Z axis
 	std::vector<GBCell> cells;
 	GBAABB aabb;
-	std::vector<GBBody*> bodies;
 	int index = 0;
 	std::vector<GBCell*> occupiedCells;
 	std::vector<GBStaticGeometry*> staticGeometry;
@@ -187,16 +187,16 @@ struct GBGrid
 				}
 	}
 
-	void sampleBodies(GBAABB sampleAABB, std::vector<GBBody*>& outBodies)
+	void sampleColliders(GBAABB sampleAABB, std::vector<GBCollider*>& outCols)
 	{
 		std::vector<GBCell*> sampled;
 		sampleGrid(sampleAABB, sampled);
 		for (GBCell* pCell : sampled)
 		{
-			for (GBBody* pBody : pCell->bodies)
+			for (GBCollider* pCol: pCell->colliders)
 			{
-				if (std::find(outBodies.begin(), outBodies.end(), pBody) == outBodies.end())
-					outBodies.push_back(pBody);
+				if (std::find(outCols.begin(), outCols.end(), pCol) == outCols.end())
+					outCols.push_back(pCol);
 			}
 		}
 	}
@@ -221,40 +221,35 @@ struct GBGrid
 		aabb = toAABB();
 	}
 
-	void insertBody(GBBody& body)
+	void insertCollider(GBCollider& col)
 	{
-		GBAABB sample = body.aabb;
+		GBAABB sample = col.aabb;
 		std::vector<GBCell*> overlappingCells;
 		sampleGrid(sample, overlappingCells); // now we get pointers
 		for (GBCell* cell : overlappingCells)
 		{
-			cell->bodies.push_back(&body);
-			body.occupiedCells.push_back(cell);
+			cell->colliders.push_back(&col);
+			col.occupiedCells.push_back(cell);
 		}
-		if (std::find(bodies.begin(), bodies.end(), &body) == bodies.end())
-			bodies.push_back(&body);
 	}
 
-	void removeBody(GBBody& body)
+	void removeCollider(GBCollider& col)
 	{
-		for (GBCell* cell : body.occupiedCells)
+		for (GBCell* cell : col.occupiedCells)
 		{
 			// Remove all occurrences of the collider pointer in this cell
-			cell->bodies.erase(
-				std::remove(cell->bodies.begin(), cell->bodies.end(), (GBBody*)&body),
-				cell->bodies.end()
+			cell->colliders.erase(
+				std::remove(cell->colliders.begin(), cell->colliders.end(), (GBCollider*)&col),
+				cell->colliders.end()
 			);
 		}
-		body.occupiedCells.clear();
-		auto it = std::find(bodies.begin(), bodies.end(), &body);
-		if (it != bodies.end())
-			bodies.erase(it);
+		col.occupiedCells.clear();
 	}
 
-	void moveBody(GBBody& body)
+	void moveCollider(GBCollider& col)
 	{
-		removeBody(body);
-		insertBody(body);
+		removeCollider(col);
+		insertCollider(col);
 	}
 
 	void insertStaticGeometry(const GBAABB& sample, GBStaticGeometry& geometry)
@@ -472,12 +467,12 @@ struct GBGrid
 			// Test contents
 			{
 				bool hitBody = false;
-				if (!cell.bodies.empty())
+				if (!cell.colliders.empty())
 				{
-					if (GBManifoldGeneration::GBRaycastBodiesVector(
+					if (GBManifoldGeneration::GBRaycastColliderVector(
 						rayOrigin,
 						dir,
-						cell.bodies,
+						cell.colliders,
 						test,
 						mask))
 					{
@@ -783,22 +778,14 @@ struct GBGridMap
 		}
 	}
 
-	void sampleBodies(GBAABB sampleAABB, std::vector<GBBody*>& outBodies, GBVector3 localOrigin = GBVector3::zero())
+	void sampleColliders(GBAABB sampleAABB, std::vector<GBCollider*>& outCols, GBVector3 localOrigin = GBVector3::zero())
 	{
 		std::vector<GBGrid*> sampled;
 		sampleAABB.center += localOrigin;
 		sampleMap(sampleAABB, sampled);
 		for (GBGrid* pGrid : sampled)
 		{
-			std::vector<GBBody*> bodies;
-			pGrid->sampleBodies(sampleAABB, bodies);
-			for (GBBody* body : bodies)
-			{
-				if (std::find(outBodies.begin(), outBodies.end(), body) == outBodies.end() && !body->ignoreSample)
-				{
-					outBodies.push_back(body);
-				}
-			}
+			pGrid->sampleColliders(sampleAABB, outCols);
 		}
 	}
 
@@ -841,19 +828,22 @@ struct GBGridMap
 
 	void insertBody(GBBody& body)
 	{
-		std::vector<GBVector3> indices = sampleGrid3DIndices(body.aabb);
-		for (GBVector3 index3D : indices)
+		for (GBCollider* pCol : body.colliders)
 		{
-			int singleIndex = gridIndex(index3D.x, index3D.y, index3D.z);
-			if (singleIndex >= 0)
+			std::vector<GBVector3> indices = sampleGrid3DIndices(pCol->aabb);
+			for (GBVector3 index3D : indices)
 			{
-				if (grids.find(singleIndex) == grids.end())
+				int singleIndex = gridIndex(index3D.x, index3D.y, index3D.z);
+				if (singleIndex >= 0)
 				{
-					grids[singleIndex] = GBGrid(gridOriginFromIndices(index3D.x, index3D.y, index3D.z), cellSize, cellsX, cellsY, cellsZ, singleIndex);
+					if (grids.find(singleIndex) == grids.end())
+					{
+						grids[singleIndex] = GBGrid(gridOriginFromIndices(index3D.x, index3D.y, index3D.z), cellSize, cellsX, cellsY, cellsZ, singleIndex);
+					}
+					grids[singleIndex].insertCollider(*pCol);
+					if (std::find(occupiedGridIndices.begin(), occupiedGridIndices.end(), singleIndex) == occupiedGridIndices.end())
+						occupiedGridIndices.push_back(singleIndex);
 				}
-				grids[singleIndex].insertBody(body);
-				if (std::find(occupiedGridIndices.begin(), occupiedGridIndices.end(), singleIndex) == occupiedGridIndices.end())
-					occupiedGridIndices.push_back(singleIndex);
 			}
 		}
 	}
@@ -906,18 +896,18 @@ struct GBGridMap
 
 	void removeBody(GBBody& body)
 	{
-		for (GBCell* cell : body.occupiedCells)
+		for (GBCollider* pCol : body.colliders)
 		{
-			// Remove all occurrences of the collider pointer in this cell
-			cell->bodies.erase(
-				std::remove(cell->bodies.begin(), cell->bodies.end(), (GBBody*)&body),
-				cell->bodies.end()
-			);
-			auto it = std::find(grids[cell->gridIndex].bodies.begin(), grids[cell->gridIndex].bodies.end(), &body);
-			if (it != grids[cell->gridIndex].bodies.end())
-				grids[cell->gridIndex].bodies.erase(it);
+			for (GBCell* cell : pCol->occupiedCells)
+			{
+				// Remove all occurrences of the collider pointer in this cell
+				cell->colliders.erase(
+					std::remove(cell->colliders.begin(), cell->colliders.end(), pCol),
+					cell->colliders.end()
+				);
+			}
+			pCol->occupiedCells.clear();
 		}
-		body.occupiedCells.clear();
 	}
 
 	void removeStaticGeometry(GBStaticGeometry& geometry)

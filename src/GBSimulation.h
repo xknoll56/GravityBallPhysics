@@ -956,6 +956,24 @@ struct GBSimulation
 		return outManifold.numContacts > 0;
 	}
 
+	bool generateColliderManifold(GBCollider* col, GBCollider* pOther, GBSATCollisionData& data, GBManifold& outManifold)
+	{
+		switch (col->type)
+		{
+		case ColliderType::Sphere:
+			generateSphereManifold((GBSphereCollider*)col, pOther, outManifold);
+			break;
+		case ColliderType::Box:
+			generateBoxManifold((GBBoxCollider*)col, pOther, data, outManifold);
+			break;
+		case ColliderType::Capsule:
+			generateCapsuleManifold((GBCapsuleCollider*)col, pOther, outManifold);
+			break;
+		}
+
+		return outManifold.numContacts > 0;
+	}
+
 	bool generateBodyManifold(GBBody* a, GBBody* b, GBSATCollisionData& data)
 	{
 		manifoldStack.clear();
@@ -1076,18 +1094,35 @@ struct GBSimulation
 
 	void extractBroadPhaseBodies(int bodyIndex, std::vector<GBBody*>& bodies, std::vector<GBBody*>& outBodies)
 	{
+	//	switch (broadPhaseType)
+	//	{
+	//	case BroadPhaseType::NONE:
+	//		for (int i = bodyIndex + 1; i < bodies.size(); i++)
+	//			outBodies.push_back(bodies[i]);
+	//		break;
+	//	case BroadPhaseType::UNIFORM_GRID:
+	//		GBBody* pBody = bodies[bodyIndex];
+	//		gridMap.sampleBodies(pBody->aabb, outBodies);
+	//		break;
+	//	}
+	}
+
+	void extractBroadPhaseColliders(GBCollider* pCol, std::vector<GBCollider*>& outCols)
+	{
 		switch (broadPhaseType)
 		{
 		case BroadPhaseType::NONE:
-			for (int i = bodyIndex + 1; i < bodies.size(); i++)
-				outBodies.push_back(bodies[i]);
+			for (int i = 0; i < colliders.size(); i++)
+			{
+				outCols.push_back(colliders[i]);
+			}
 			break;
 		case BroadPhaseType::UNIFORM_GRID:
-			GBBody* pBody = bodies[bodyIndex];
-			gridMap.sampleBodies(pBody->aabb, outBodies);
+			gridMap.sampleColliders(pCol->aabb, outCols);
 			break;
 		}
 	}
+
 
 	std::vector<GBAABB> getOccupiedCellAABBs(const GBBody& body)
 	{
@@ -1240,6 +1275,23 @@ struct GBSimulation
 
 	}
 
+	struct ColliderPair
+	{
+		GBCollider* a;
+		GBCollider* b;
+
+		ColliderPair(GBCollider* x, GBCollider* y)
+		{
+			if (x < y) { a = x; b = y; }
+			else { a = y; b = x; }
+		}
+
+		bool operator==(const ColliderPair& other) const
+		{
+			return a == other.a && b == other.b;
+		}
+	};
+
 	struct BodyPair
 	{
 		GBBody* a;
@@ -1269,6 +1321,19 @@ struct GBSimulation
 		}
 	};
 
+
+	struct ColliderPairHash
+	{
+		size_t operator()(const ColliderPair& p) const noexcept
+		{
+			size_t h1 = std::hash<GBCollider*>{}(p.a);
+			size_t h2 = std::hash<GBCollider*>{}(p.b);
+
+			// boost-style hash combine
+			return h1 ^ (h2 + 0x9e3779b97f4a7c15ULL + (h1 << 6) + (h1 >> 2));
+		}
+	};
+
 	bool containsPair(const std::unordered_map<BodyPair, GBManifold, BodyPairHash>& map, const GBBody* a, const GBBody* b)
 	{
 		return map.find(BodyPair((GBBody*)a, (GBBody*)b)) != map.end();
@@ -1282,7 +1347,7 @@ struct GBSimulation
     static constexpr float sleepThreshold = 0.1f; // linear+angular speed below which sleep is considered
 	static constexpr float sleepTime = 0.5f;       // time to accumulate before sleeping
 	const float slop = 0.05f;
-	std::unordered_map<BodyPair, GBManifold, BodyPairHash> pairManifolds;
+	std::unordered_map<ColliderPair, GBManifold, ColliderPairHash> pairManifolds;
 	std::vector<GBManifold> manifoldStack;
 	// ------------------------------------------------------------
 	// SIMULATION STEP
@@ -1308,7 +1373,7 @@ struct GBSimulation
 		}
 
 		frameStaticManifolds.clear();
-		std::unordered_map<BodyPair, GBManifold, BodyPairHash> curPairManifolds;
+		std::unordered_map<ColliderPair, GBManifold, ColliderPairHash> curPairManifolds;
 
 		for (int iter = 0; iter < solverIterations; iter++)
 		{
@@ -1347,7 +1412,8 @@ struct GBSimulation
 
 
 			std::vector<GBBody*> sortedBodies = sortBodiesByHeight(rigidBodies);
-			std::unordered_set<BodyPair, BodyPairHash> dynamicPairs;
+			//std::unordered_set<BodyPair, BodyPairHash> dynamicPairs;
+			std::unordered_set<ColliderPair, ColliderPairHash> dynamicPairs;
 
 			//*****************************************************************************************************
 			//*****************************************************************************************************
@@ -1364,57 +1430,57 @@ struct GBSimulation
 				if (bodyA->ignoreSample || bodyA->isStatic || bodyA->isSleeping || bodyA->isTrigger)
 					continue;
 				bool didColide = false;
-				std::vector<GBBody*> checkBodies;
-				extractBroadPhaseBodies(i, sortedBodies, checkBodies);
-				for (int j = 0; j < checkBodies.size(); j++)
+
+				for (GBCollider* colA: bodyA->colliders)
 				{
-					GBBody* bodyB = checkBodies[j];
-					if (bodyA == bodyB || !bodyA->sharesLayer(*bodyB))
-						continue;
-
-					BodyPair pair(bodyA, bodyB);
-					if (!dynamicPairs.insert(pair).second)
-						continue; 
-
-
-					if (!bodyA->isStatic && !bodyB->isStatic)
+					std::vector<GBCollider*> checkColliders;
+					extractBroadPhaseColliders(colA, checkColliders);
+					for (GBCollider* colB: checkColliders)
 					{
-						// Skip triggers and handle in static solver
-						if (bodyB->isTrigger)
+						GBBody* bodyB = colB->pBody;
+						if (bodyA == bodyB || !bodyA->sharesLayer(*bodyB))
 							continue;
 
-						GBSATCollisionData data;
+						ColliderPair pair(colA, colB);
+						if (!dynamicPairs.insert(pair).second)
+							continue;
 
-						if (generateBodyManifold(bodyA, bodyB, data))
+
+						if (!bodyA->isStatic && !bodyB->isStatic)
 						{
-							for (int k = 0; k < manifoldStack.size(); k++)
+							// Skip triggers and handle in static solver
+							if (bodyB->isTrigger)
+								continue;
+
+							GBSATCollisionData data;
+							GBManifold manifold;
+							if (generateColliderManifold(colA, colB,data, manifold))
 							{
-								GBManifold& manifold = manifoldStack[k];
-								if (manifold.numContacts == 0)
-									continue;
+									if (manifold.numContacts == 0)
+										continue;
 
-								curPairManifolds[pair] = manifold;
+									curPairManifolds[pair] = manifold;
 
-								manifold.flipAndSwapIfContactOnTop(manifold.normal);
-								solveDynamicPenetration(manifold, *manifold.pIncident);
-								solveDynamicManifold(manifold, *manifold.pIncident, *manifold.pReference, interDeltaTime, !manifold.pIncident->isKinematic);
+									manifold.flipAndSwapIfContactOnTop(manifold.normal);
+									solveDynamicPenetration(manifold, *manifold.pIncident);
+									solveDynamicManifold(manifold, *manifold.pIncident, *manifold.pReference, interDeltaTime, !manifold.pIncident->isKinematic);
 
-								bool awaken = manifold.separation > maxPenetration;
-								bodyA->addDynamicContact(bodyB, false, awaken);
-								bodyB->addDynamicContact(bodyA, false, awaken);
+									bool awaken = manifold.separation > maxPenetration;
+									bodyA->addDynamicContact(bodyB, false, awaken);
+									bodyB->addDynamicContact(bodyA, false, awaken);
 
-								if (manifold.pIncident)
-								{
-									manifold.pIncident->frameManifold.combine(manifold);
-								}
-								if (manifold.pReference)
-								{
-									GBManifold refManifold = GBManifold::asReference(manifold);
-									manifold.pReference->frameManifold.combine(refManifold);
-								}
+									if (manifold.pIncident)
+									{
+										manifold.pIncident->frameManifold.combine(manifold);
+									}
+									if (manifold.pReference)
+									{
+										GBManifold refManifold = GBManifold::asReference(manifold);
+										manifold.pReference->frameManifold.combine(refManifold);
+									}
 							}
-						}
 
+						}
 					}
 
 				}
@@ -1431,7 +1497,7 @@ struct GBSimulation
 			//*****************************************************************************************************
 			//*****************************************************************************************************
 			//*****************************************************************************************************
-			std::unordered_set<BodyPair, BodyPairHash> staticPairs;
+			std::unordered_set<ColliderPair, ColliderPairHash> staticPairs;
 			for (int i = 0; i < sortedBodies.size(); i++)
 			{
 				GBBody* bodyA = sortedBodies[i];
@@ -1440,27 +1506,27 @@ struct GBSimulation
 				if (bodyA->isDynamic() || bodyA->isKinematic)
 					handleStaticGeometry(*bodyA, interDeltaTime);
 
-				std::vector<GBBody*> checkBodies;
-				extractBroadPhaseBodies(i, sortedBodies, checkBodies);
-				for (int j = 0; j < checkBodies.size(); j++)
+				for (GBCollider* colA : bodyA->colliders)
 				{
-					GBBody* bodyB = checkBodies[j];
-					if (bodyA == bodyB || !bodyA->sharesLayer(*bodyB))
-						continue;
-
-					BodyPair pair(bodyA, bodyB);
-					if (!staticPairs.insert(pair).second)
-						continue; // already processed this pair
-
-					if (bodyA->isStatic && bodyB->isStatic)
-						continue;
-
-					GBSATCollisionData data;
-					if (generateBodyManifold(bodyA, bodyB, data))
+					std::vector<GBCollider*> checkColliders;
+					extractBroadPhaseColliders(colA, checkColliders);
+					for (GBCollider* colB : checkColliders)
 					{
-						for (int k = 0; k < manifoldStack.size(); k++)
+						GBBody* bodyB = colB->pBody;
+						if (bodyA == bodyB || !bodyA->sharesLayer(*bodyB))
+							continue;
+
+						ColliderPair pair(colA, colB);
+						if (!staticPairs.insert(pair).second)
+							continue; // already processed this pair
+
+						if (bodyA->isStatic && bodyB->isStatic)
+							continue;
+
+						GBSATCollisionData data;
+						GBManifold manifold;
+						if (generateColliderManifold(colA, colB, data, manifold))
 						{
-							GBManifold& manifold = manifoldStack[k];
 							if (manifold.numContacts == 0)
 								continue;
 
@@ -1484,7 +1550,7 @@ struct GBSimulation
 								if (manifold.numContacts > 0)
 								{
 
-									curPairManifolds[BodyPair(bodyA, bodyB)] = manifold;
+									curPairManifolds[ColliderPair(colA,colB)] = manifold;
 
 									// If B is a trigger, just add manifold for callback and don't resolve
 									if (bodyB->isTrigger)
@@ -1591,13 +1657,13 @@ struct GBSimulation
 
 			if (it == pairManifolds.end())
 			{
-				dispatchEnterListeners(pair.a->id, manifold, pair.b);
-				dispatchEnterListeners(pair.b->id, manifold, pair.a);
+				dispatchEnterListeners(pair.a->pBody->id, manifold, pair.b->pBody);
+				dispatchEnterListeners(pair.b->pBody->id, manifold, pair.a->pBody);
 			}
 			else
 			{
-				dispatchStayListeners(pair.a->id, manifold, pair.b);
-				dispatchStayListeners(pair.b->id, manifold, pair.a);
+				dispatchStayListeners(pair.a->pBody->id, manifold, pair.b->pBody);
+				dispatchStayListeners(pair.b->pBody->id, manifold, pair.a->pBody);
 			}
 		}
 
@@ -1605,8 +1671,8 @@ struct GBSimulation
 		{
 			if (curPairManifolds.find(pair)==curPairManifolds.end())
 			{
-				dispatchExitListeners(pair.a->id, pair.b);
-				dispatchExitListeners(pair.b->id, pair.a);
+				dispatchExitListeners(pair.a->pBody->id, pair.b->pBody);
+				dispatchExitListeners(pair.b->pBody->id, pair.a->pBody);
 			}
 		}
 

@@ -2454,7 +2454,8 @@ struct GBManifoldGeneration
 		const GBVector3& rayOrigin,
 		GBVector3 rayDir,
 		const std::vector<GBCollider*>& colliders,
-		GBContact& outContact
+		GBContact& outContact,
+		unsigned int mask = 0xFFFFFFFF
 	)
 	{
 		float minDist = FLT_MAX;
@@ -2463,6 +2464,8 @@ struct GBManifoldGeneration
 		GBCollider* pHitCollider = nullptr;
 		for (GBCollider* pCollider : colliders)
 		{
+			if (!pCollider->pBody->isOnLayer(mask))
+				continue;
 			switch (pCollider->type)
 			{
 			case ColliderType::Box:

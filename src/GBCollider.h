@@ -494,7 +494,6 @@ struct GBBody
 
 	GBAABB aabb;
 
-	std::vector<GBCell*> occupiedCells;
 
 	bool isDirty = true;
 
