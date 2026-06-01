@@ -2016,6 +2016,7 @@ struct GBManifoldGeneration
 		return quad;
 	}
 
+
 	static bool GBManifoldEdgeEdge(const GBQuad& quadA,
 		const GBQuad& quadB,
 		const GBVector3& dir,
@@ -2035,12 +2036,18 @@ struct GBManifoldGeneration
 				if (GBEdge::closestEdgeBetween(edgesA[i], edgesB[j], connection, true))
 				{
 					GBContact contact;
+					GBVector3 normal = GBNormalize(dir);
+
 					contact.position = connection.a;
-					contact.normal = connection.a - connection.b;
-					contact.penetrationDepth = contact.normal.length();
-					contact.normal *= (1.0f / contact.penetrationDepth);
-					if (GBDot(contact.normal, dir) > 0.99f)
+
+					float depth = GBDot((connection.a - connection.b).normalized(), normal);
+
+					if (depth > GBEpsilon)
+					{
+						contact.normal = normal;
+						contact.penetrationDepth = depth;
 						outManifold.addContact(contact);
+					}
 				}
 			}
 		}

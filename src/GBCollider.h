@@ -291,8 +291,13 @@ struct GBManifold
 		return GBContact(avg, contacts[0].normal, sep);
 	}
 
-	void combine(const GBManifold& other)
+	void combine(const GBManifold& other, bool updateNormal = false)
 	{
+		if (updateNormal)
+		{
+			if (other.separation > separation)
+				useNormal(other);
+		}
 		for (int i = 0; i < other.numContacts; i++)
 		{
 			addContact(other.contacts[i]);
@@ -371,6 +376,23 @@ struct GBManifold
 			return contacts[i].normal;
 		else
 			return normal;
+	}
+
+	float maxUpContact(GBContact& outContact) const
+	{
+		float max = -FLT_MAX;
+		for (int i = 0; i < numContacts; i++)
+		{
+			float upness = GBDot(contacts[i].normal, GBVector3::up());
+			if (upness > max)
+			{
+				outContact = contacts[i];
+				max = upness;
+			}
+		}
+
+		return max;
+			
 	}
 };
 
@@ -683,6 +705,7 @@ struct GBBody
 		sleepTimer = 0.0f;
 		staticGeometries.clear();
 		isGrounded = false;
+		awakeTimer = 0.0f;
 
 
 		depth += 1;
@@ -706,27 +729,29 @@ struct GBBody
 		wakeRecursive(visited, depth, maxDepth);
 	}
 
-	bool hasStaticAttachmentRecursive(std::unordered_set<const GBBody*>& visited) const
+	bool hasStaticAttachmentRecursive(std::unordered_set<const GBBody*>& visited, int depth, int maxDepth) const
 	{
-		if (visited.count(this))
+		if (visited.count(this) || depth>=maxDepth)
 			return false;
 
 		visited.insert(this);
 
-		if (isStatic)
+		if (isStatic || isSleeping || staticGeometries.size()>0)
 			return true;
+
+		depth++;
 
 		if (visited.size() < maxRecursiveDepth)
 		{
 			for (GBBody* b : dynamicBodies)
 			{
-				if (b && b->hasStaticAttachmentRecursive(visited))
+				if (b && b->hasStaticAttachmentRecursive(visited, depth, maxDepth))
 					return true;
 			}
 
 			for (GBBody* b : staticBodies)
 			{
-				if (b && b->hasStaticAttachmentRecursive(visited))
+				if (b && b->hasStaticAttachmentRecursive(visited, depth, maxDepth))
 					return true;
 			}
 		}
@@ -734,10 +759,11 @@ struct GBBody
 		return false;
 	}
 
-	bool hasStaticAttachment() const
+	bool hasStaticAttachment(int maxDepth = 4) const
 	{
 		std::unordered_set<const GBBody*> visited;
-		return hasStaticAttachmentRecursive(visited);
+		int depth = 0;
+		return hasStaticAttachmentRecursive(visited, depth, maxDepth);
 	}
 
 	void wake()
@@ -884,6 +910,7 @@ struct GBBody
 		dynamicBodies.clear();
 		staticBodies.clear();
 		staticNormals.clear();
+		staticGeometries.clear();
 	}
 
 	GBVector3 realVelocity(float dt)
