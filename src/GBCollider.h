@@ -93,9 +93,10 @@ typedef GBHit GBRay;   // temporary alias
 
 struct GBPlane;
 
+const static int MAX_CONTACTS = 10;
 struct GBManifold
 {
-	GBContact contacts[4];
+	GBContact contacts[MAX_CONTACTS];
 	int numContacts = 0;
 	float separation = 0.0f;
 	GBVector3 normal;
@@ -153,7 +154,7 @@ struct GBManifold
 
 	void sortByDepth()
 	{
-		// Insertion sort (N <= 4)
+		// Insertion sort (N <= MAX_CONTACTS)
 		// Order: deepest → shallowest
 		for (int i = 1; i < numContacts; i++)
 		{
@@ -192,26 +193,26 @@ struct GBManifold
 		hasGroundedManifold = false;
 	}
 
-	void addContact(const GBContact& contact, bool sorted = true)
+	void addContact(const GBContact& contact, bool sorted = true, float epsilon = GBEpsilon)
 	{
 		if (!sorted)
 		{
-			if (numContacts < 4)
+			if (numContacts < MAX_CONTACTS)
 				contacts[numContacts++] = contact;
 		}
 		else
 		{
-			addContactSortedUnique(contact);
+			addContactSortedUnique(contact, GBEpsilon);
 		}
 	}
 
-	void addContactSortedUnique(const GBContact& contact)
+	void addContactSortedUnique(const GBContact& contact, float epsilon = GBEpsilon)
 	{
 		// Reject duplicates
-		if (findDuplicate(contact) != -1)
+		if (findDuplicate(contact, epsilon) != -1)
 			return;
 
-		if (numContacts < 4)
+		if (numContacts < MAX_CONTACTS)
 		{
 			contacts[numContacts++] = contact;
 		}
@@ -277,6 +278,29 @@ struct GBManifold
 		return 0.5f * AB.cross(AC).length();
 	}
 
+	float supportSize() const
+	{
+		if (numContacts < 2)
+			return 0.0f;
+
+		const static float fakeEdgeWidth = 0.05f;
+		if (numContacts == 2)
+			return (contacts[1].position - contacts[0].position).length() * fakeEdgeWidth;
+
+		// 3 or more contacts → area of first triangle
+		GBVector3 A = contacts[0].position;
+		GBVector3 B = contacts[1].position;
+		GBVector3 C = contacts[2].position;
+		A = A.xyComponent();
+		B = B.xyComponent();
+		C = C.xyComponent();
+
+		// Area = 0.5 * |(B - A) x (C - A)|
+		GBVector3 AB = B - A;
+		GBVector3 AC = C - A;
+		return 0.5f * AB.cross(AC).length();
+	}
+
 	bool treatedAsStatic = false;
 
 	GBContact collapsed() const
@@ -301,6 +325,20 @@ struct GBManifold
 		for (int i = 0; i < other.numContacts; i++)
 		{
 			addContact(other.contacts[i]);
+		}
+	}
+
+	void combineSupports(const GBManifold& other, bool updateNormal = true, float epsilon = GBEpsilon)
+	{
+		if (updateNormal)
+		{
+			if (other.separation > separation)
+				useNormal(other);
+		}
+		for (int i = 0; i < other.numContacts; i++)
+		{
+			if (other.contacts[i].normal.z > GBLargeEpsilon)
+				addContact(other.contacts[i], true, epsilon);
 		}
 	}
 
@@ -392,8 +430,65 @@ struct GBManifold
 		}
 
 		return max;
-			
+
 	}
+
+	GBManifold asSupportManifold()
+	{
+		GBManifold support;
+		for (int i = 0; i < numContacts; i++)
+		{
+			if (contacts[i].normal.z>0.0f)
+			{
+				support.addContact(contacts[i], true, 0.005f);
+			}
+		}
+		support.useNormal(support.contacts[0]);
+		return support;
+	}
+
+	bool containsSupportOrigin(GBVector3 pos, float tolerance = 0.005f)
+	{
+		bool negX = false;
+		bool posX = false;
+		bool posY = false;
+		bool negY = false;
+
+		if (numContacts > 2)
+		{
+			for (int i = 0; i < numContacts; i++)
+			{
+				GBVector3 local = contacts[i].position - pos;
+				if (local.x < 0.0f)
+					negX = true;
+				else
+					posX = true;
+
+				if (local.y < 0.0f)
+					negY = true;
+				else
+					posY = true;
+			}
+			return (negX && posX) && (negY && posY);
+		}
+		else if(numContacts == 2)
+		{
+			GBEdge supportEdge(contacts[0].position, contacts[1].position);
+			GBVector3 pointOnLine = supportEdge.closestPointOnLine(pos) - pos;
+			return pointOnLine.xyComponent().length() < tolerance;
+		}
+		else
+		{
+			return (pos - contacts[0].position).xyComponent().length() < tolerance;
+		}
+	}
+
+	void capContacts(int capacity = 4)
+	{
+		if (numContacts > capacity)
+			numContacts = capacity;
+	}
+
 };
 
 struct GBStaticGeometry;
@@ -530,7 +625,6 @@ struct GBBody
 	GBManifold frameManifold;
 
 	bool isGrounded = false;
-	int isGroundedCount = 0;
 
 	bool isPlayerController = false;
 	float playerSlopeValue = 0.7f;
@@ -601,6 +695,8 @@ struct GBBody
 	{
 		mass = m;
 		invMass = (mass > 0.0f) ? 1.0f / mass : 0.0f;
+
+		setInertia(aabb.halfExtents);
 	}
 
 
@@ -692,6 +788,11 @@ struct GBBody
 	bool isMovable()
 	{
 		return !isStatic && !isTrigger;
+	}
+
+	bool isAwake()
+	{
+		return isMovable() && !isSleeping;
 	}
 
 	bool isTrigger = false;
@@ -921,6 +1022,16 @@ struct GBBody
 	GBVector3 realAngularVelocity(float dt)
 	{
 		return GBQuaternion::toAngularVelocity(prevRotation, transform.rotation, dt);
+	}
+
+	float getSupportArea() const
+	{
+		return aabb.halfExtents.x * aabb.halfExtents.y * 4.0f;
+	}
+
+	float getSupportRatio() const
+	{
+		return frameManifold.supportSize() / getSupportArea();
 	}
 };
 
@@ -1314,6 +1425,12 @@ struct GBQuad : GBStaticGeometry
 				? edges[FORWARD]
 				: edges[BACK];
 		}
+	}
+
+	void expandArea(float epsilon = GBEpsilon)
+	{
+		xSize += epsilon;
+		ySize += epsilon;
 	}
 };
 

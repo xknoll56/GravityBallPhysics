@@ -2040,13 +2040,13 @@ struct GBManifoldGeneration
 
 					contact.position = connection.a;
 
-					float depth = GBDot((connection.a - connection.b).normalized(), normal);
-
-					if (depth > GBEpsilon)
-					{
-						contact.normal = normal;
-						contact.penetrationDepth = depth;
-						outManifold.addContact(contact);
+					float depth = GBDot((connection.a - connection.b), normal); 
+					
+					if (depth > GBEpsilon) 
+					{ 
+						contact.normal = normal; 
+						contact.penetrationDepth = depth; 
+						outManifold.addContact(contact); 
 					}
 				}
 			}
@@ -2090,24 +2090,6 @@ struct GBManifoldGeneration
 		const GBSATCollisionData& colData,
 		GBManifold& outManifold)
 	{
-		GBVector3 initPos = GBVector3::zero();
-		if (boxA.pBody && boxB.pBody)
-		{
-			if (!boxA.pBody->isStatic || !boxB.pBody->isStatic)
-			{
-				initPos = boxA.pBody->isStatic ? boxB.transform.position : boxA.transform.position;
-				boxA.transform.position -= initPos;
-				boxB.transform.position -= initPos;
-			}
-		}
-		else
-		{
-			// Just use the first box as origin
-			initPos = boxA.transform.position;
-			boxA.transform.position -= initPos;
-			boxB.transform.position -= initPos;
-		}
-
 		outManifold.separation = colData.minOverlap;
 		outManifold.normal = colData.bestAxis;
 
@@ -2136,9 +2118,6 @@ struct GBManifoldGeneration
 			outManifold.isEdge = true;
 			if (GBManifoldGeneration::GBManifoldEdgeEdge(qa, qb, colData.bestAxis, outManifold))
 			{
-				boxA.transform.position += initPos;
-				boxB.transform.position += initPos;
-				outManifold.applyTransformation(GBTransform(initPos, GBQuaternion()));
 				return true;
 			}
 		}
@@ -2147,13 +2126,14 @@ struct GBManifoldGeneration
 		GBTransform referenceInverse = pReference->transform.inverse();
 		GBTransform incidentInverse = pIncident->transform.inverse();
 
-
+		GBVector3 incidentFaceDirection = incidentInverse.transformDirection(-colData.bestAxis);
 		GBQuad incidentFace = GBAAABBDirectionToQuad(GBAABB(GBVector3::zero(), pIncident->halfExtents),
-			incidentInverse.transformDirection(-colData.bestAxis));
+			incidentFaceDirection);
 		incidentFace.applyTransform(pIncident->transform);
 		incidentFace.applyTransform(referenceInverse);
 
 		GBAABB referenceAABB(GBVector3::zero(), pReference->halfExtents);
+		
 
 		GBManifold m;
 		if (GBBuildQuadAABBManifold(incidentFace, referenceAABB, colData.bestCardinal, m))
@@ -2179,9 +2159,10 @@ struct GBManifoldGeneration
 			referenceFace.applyTransform(pReference->transform);
 			referenceFace.applyTransform(incidentInverse);
 			GBAABB incidentAABB(GBVector3::zero(), pIncident->halfExtents);
+			GBCardinal incidentFaceDirectionCardinal = incidentAABB.directionToFace(incidentFaceDirection);
 
 			m.reset();
-			if (GBBuildQuadAABBManifold(referenceFace, incidentAABB, GBCardinalGetReverse(colData.bestCardinal), m, false))
+			if (GBBuildQuadAABBManifold(referenceFace, incidentAABB, incidentFaceDirectionCardinal, m, true))
 			{
 				
 				GBPlane plane = referenceFace.toPlane();
@@ -2197,21 +2178,6 @@ struct GBManifoldGeneration
 
 		outManifold.pIncident = pIncident->pBody;
 		outManifold.pReference = pReference->pBody;
-
-		if (outManifold.pIncident && outManifold.pReference)
-		{
-			if (outManifold.pIncident->isStatic)
-			{
-				GBBody* temp = outManifold.pIncident;
-				outManifold.pIncident = outManifold.pReference;
-				outManifold.pReference = temp;
-				outManifold.flip();
-			}
-		}
-
-		boxA.transform.position += initPos;
-		boxB.transform.position += initPos;
-		outManifold.applyTransformation(GBTransform(initPos, GBQuaternion()));
 
 		return outManifold.numContacts > 0;
 	}

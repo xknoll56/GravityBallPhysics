@@ -316,6 +316,19 @@ struct GBEdge {
 		return false;
 	}
 
+	bool isEdgeParallelToVec(const GBVector3& dir, float tolerance = GBLargeEpsilon) const
+	{
+		GBVector3 _dir = dir.normalized();
+		float dot = GBAbs(GBDot(getAOutDirection(), _dir));
+		return (dot >= (1.0f - tolerance));
+	}
+
+	bool areEdgesParallel(const GBEdge& other, float tolerance = GBLargeEpsilon) const
+	{
+		float dot = GBAbs(GBDot(getAOutDirection(), other.getAOutDirection()));
+		return (dot >= (1.0f - tolerance));
+	}
+
 };
 
 
