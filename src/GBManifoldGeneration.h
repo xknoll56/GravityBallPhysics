@@ -2073,12 +2073,18 @@ struct GBManifoldGeneration
 				if (GBEdge::closestEdgeBetween(edgesTri[i], edgesQuad[j], connection, true))
 				{
 					GBContact contact;
+					GBVector3 normal = GBNormalize(dir);
+
 					contact.position = connection.a;
-					contact.normal = connection.a - connection.b;
-					contact.penetrationDepth = contact.normal.length();
-					contact.normal *= (1.0f / contact.penetrationDepth);
-					if (GBDot(contact.normal, dir) > 0.99f)
+
+					float depth = GBDot((connection.a - connection.b), normal);
+
+					if (depth > GBEpsilon)
+					{
+						contact.normal = normal;
+						contact.penetrationDepth = depth;
 						outManifold.addContact(contact);
+					}
 				}
 			}
 		}
@@ -2346,34 +2352,29 @@ struct GBManifoldGeneration
 		GBSATCollisionData& colData,
 		GBManifold& outManifold)
 	{
-		GBVector3 initPos = box.transform.position;
-		box.transform.position -= initPos;
-		triangle.applyTranslation(-initPos);
-
 		outManifold.separation = colData.minOverlap;
 		outManifold.normal = colData.bestAxis;
 		GBVector3 normal = outManifold.normal;
 
-		//if (colData.bestType == GBSATCollisionType::FaceA || colData.bestType == GBSATCollisionType::FaceB)
 		{
 			//B is always incident
 			outManifold.pIncident = box.pBody;
 			normal = outManifold.normal;
 		}
-		//else
 
 		GBManifold edgeManifold;
 		{
 			GBQuad qa = GBManifoldGeneration::GBBoxDirectionToQuad(box, -colData.bestAxis);
 			edgeManifold.pIncident = box.pBody;
 			edgeManifold.isEdge = true;
-			if (GBManifoldGeneration::GBManifoldTriangleQuadEdgeEdge(triangle, qa, colData.bestAxis, edgeManifold))
+			GBManifoldGeneration::GBManifoldTriangleQuadEdgeEdge(triangle, qa, colData.bestAxis, edgeManifold);
+			for (int i = 0; i < edgeManifold.numContacts; i++)
 			{
-				//box.transform.position += initPos;
-				//triangle.applyTranslation(initPos);
-				edgeManifold.applyTransformation(GBTransform(initPos, GBQuaternion()));
-				//outManifold.normal = outManifold.contacts[0].normal;
-				//return true;
+				if (!qa.isPointContained(edgeManifold.contacts[i].position))
+				{
+					edgeManifold.removeContact(i);
+					i--;
+				}
 			}
 		}
 
@@ -2386,19 +2387,16 @@ struct GBManifoldGeneration
 		triangle.applyTransformation(boxInverse);
 		if (GBBuildTriangleAABBManifold(triangle, referenceAABB, correctedCardinal, outManifold))
 		{
+			GBQuad quad = GBAAABBDirectionToQuad(referenceAABB, axisLocal);
+			outManifold.pruneBehindPlane(quad.toPlane());
+
+
 			outManifold.applyTransformation(box.transform);
 			outManifold.normal = normal;
 		}
 		triangle.applyTransformation(box.transform);
 
-		box.transform.position += initPos;
-		triangle.applyTranslation(initPos);
-		outManifold.applyTransformation(GBTransform(initPos, GBQuaternion()));
-		outManifold.separation = outManifold.contacts[0].penetrationDepth;
-
 		outManifold.normal = triangle.normal;
-		//if (GBDot(outManifold.normal, colData.bestAxis) < 0.0f)
-		//	outManifold.normal *= -1.0f;
 		if (GBDot(outManifold.normal, box.transform.position - triangle.center()) < 0.0f)
 			outManifold.normal *= -1.0f;
 		for (int i = 0; i < outManifold.numContacts; i++)

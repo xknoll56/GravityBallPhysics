@@ -235,6 +235,35 @@ struct GBManifold
 		sortByDepth();
 	}
 
+	void removeContact(int index)
+	{
+		if (index < 0 || index >= numContacts)
+			return;
+
+		for (int i = index; i < numContacts - 1; ++i)
+		{
+			contacts[i] = contacts[i + 1];
+		}
+
+		contacts[numContacts - 1] = GBContact{};
+		--numContacts;
+	}
+
+	void removeBodiesContact(const GBBody* body)
+	{
+		for (int i = 0; i < numContacts; i++)
+		{
+			if ((contacts[i].pReference &&
+				contacts[i].pReference->pBody == body) ||
+				(contacts[i].pIncident &&
+					contacts[i].pIncident->pBody == body))
+			{
+				removeContact(i);
+				i--;
+			}
+		}
+	}
+
 	void applyTransformation(const GBTransform& transform)
 	{
 		for (int i = 0; i < numContacts; i++)
@@ -328,7 +357,7 @@ struct GBManifold
 		}
 	}
 
-	void combineSupports(const GBManifold& other, bool updateNormal = true, float epsilon = GBEpsilon)
+	void combineSupports(const GBManifold& other, bool updateNormal = true, float epsilon = GBEpsilon, float upwardThreshold = 0.05f)
 	{
 		if (updateNormal)
 		{
@@ -337,8 +366,8 @@ struct GBManifold
 		}
 		for (int i = 0; i < other.numContacts; i++)
 		{
-			if (other.contacts[i].normal.z > GBLargeEpsilon)
-				addContact(other.contacts[i], true, epsilon);
+			if (other.contacts[i].normal.z > upwardThreshold)
+				addContact(other.contacts[i], true, upwardThreshold);
 		}
 	}
 
@@ -447,41 +476,7 @@ struct GBManifold
 		return support;
 	}
 
-	bool containsSupportOrigin(GBVector3 pos, float tolerance = 0.005f)
-	{
-		bool negX = false;
-		bool posX = false;
-		bool posY = false;
-		bool negY = false;
-
-		if (numContacts > 2)
-		{
-			for (int i = 0; i < numContacts; i++)
-			{
-				GBVector3 local = contacts[i].position - pos;
-				if (local.x < 0.0f)
-					negX = true;
-				else
-					posX = true;
-
-				if (local.y < 0.0f)
-					negY = true;
-				else
-					posY = true;
-			}
-			return (negX && posX) && (negY && posY);
-		}
-		else if(numContacts == 2)
-		{
-			GBEdge supportEdge(contacts[0].position, contacts[1].position);
-			GBVector3 pointOnLine = supportEdge.closestPointOnLine(pos) - pos;
-			return pointOnLine.xyComponent().length() < tolerance;
-		}
-		else
-		{
-			return (pos - contacts[0].position).xyComponent().length() < tolerance;
-		}
-	}
+	bool containsSupportOrigin(GBVector3 pos, float tolerance = 0.005f, float minRestingSlope = 0.7071f);
 
 	void capContacts(int capacity = 4)
 	{
@@ -574,7 +569,6 @@ struct GBBody
 
 	// Contacted bodies
 	std::vector<GBBody*> dynamicBodies;
-	std::vector<GBBody*> staticBodies;
 	std::vector<GBStaticGeometry*> staticGeometries;
 
 	// Physics properties
@@ -802,12 +796,7 @@ struct GBBody
 		if (visited.count(this)) return;
 		visited.insert(this);
 
-		isSleeping = false;
-		sleepTimer = 0.0f;
-		staticGeometries.clear();
-		isGrounded = false;
-		awakeTimer = 0.0f;
-
+		wake();
 
 		depth += 1;
 		if (depth > maxDepth)
@@ -816,14 +805,10 @@ struct GBBody
 		for (GBBody* b : dynamicBodies)
 			if (b && !b->isStatic)
 				b->wakeRecursive(visited,depth, maxDepth);
-
-		for (GBBody* b : staticBodies)
-			if (b && !b->isStatic)
-				b->wakeRecursive(visited, depth, maxDepth);
 	}
 
 	// wrapper
-	void wakeIsland(const int maxDepth = 2)
+	void wakeIsland(const int maxDepth = 1)
 	{
 		std::unordered_set<GBBody*> visited;
 		int depth = 0;
@@ -849,12 +834,6 @@ struct GBBody
 				if (b && b->hasStaticAttachmentRecursive(visited, depth, maxDepth))
 					return true;
 			}
-
-			for (GBBody* b : staticBodies)
-			{
-				if (b && b->hasStaticAttachmentRecursive(visited, depth, maxDepth))
-					return true;
-			}
 		}
 
 		return false;
@@ -872,7 +851,20 @@ struct GBBody
 		isSleeping = false;
 		sleepTimer = 0.0f;
 		awakeTimer = 0.0f;
+		isGrounded = false;
 		staticGeometries.clear();
+
+		for (int i = 0; i < frameManifold.numContacts; i++)
+		{
+			if (frameManifold.contacts[i].pIncident && frameManifold.contacts[i].pReference)
+			{
+				GBBody* pOther = frameManifold.contacts[i].pIncident->pBody == this ?
+					frameManifold.contacts[i].pIncident->pBody : frameManifold.contacts[i].pReference->pBody;
+				pOther->frameManifold.removeBodiesContact(this);
+				frameManifold.removeBodiesContact(pOther);
+			}
+		}
+		frameManifold.reset();
 	}
 
 
@@ -899,19 +891,6 @@ struct GBBody
 				other->wakeIsland();
 			else
 				other->wake();
-		}
-	}
-
-	std::vector<GBVector3> staticNormals;
-
-	void addStaticContact(GBBody* other, GBVector3 normal = GBVector3::zero())
-	{
-		if (std::find(staticBodies.begin(),
-			staticBodies.end(),
-			other) == staticBodies.end())
-		{
-			staticBodies.push_back(other);
-			staticNormals.push_back(normal);
 		}
 	}
 
@@ -1009,8 +988,6 @@ struct GBBody
 	void clearContactedBodies()
 	{
 		dynamicBodies.clear();
-		staticBodies.clear();
-		staticNormals.clear();
 		staticGeometries.clear();
 	}
 
@@ -1585,6 +1562,87 @@ inline bool GBManifold::canSleep(const GBVector3& com) const
 
 	// Check if projected point is inside triangle
 	return tri.PointInTriangle(proj);
+}
+
+bool GBManifold::containsSupportOrigin(GBVector3 pos, float tolerance, float minRestingSlope)
+{
+	bool negX = false;
+	bool posX = false;
+	bool posY = false;
+	bool negY = false;
+	float maxUp = -FLT_MAX;
+
+	if (numContacts > 2)
+	{
+		for (int i = 2; i < numContacts; i++)
+		{
+			GBTriangle tri = { contacts[i - 2].position, contacts[i - 1].position, contacts[i].position };
+			GBPlane p = tri.toPlane();
+			if (p.normal.z < 0.0f)
+				p.normal = -p.normal;
+			maxUp = GBMax(maxUp, GBDot(p.normal, GBVector3::up()));
+			GBVector3 right = GBCross(GBEdge(tri.vertices[i - 2], tri.vertices[i - 1]).getAOutDirection(), p.normal).normalized();
+			GBVector3 forward = GBCross(right, p.normal).normalized();
+
+			GBVector3 local = contacts[i].position - pos;
+			float localRight = GBDot(local, right);
+			float localForward = GBDot(local, forward);
+			if (localRight < 0.0f)
+				negX = true;
+			else
+				posX = true;
+
+			if (localForward < 0.0f)
+				negY = true;
+			else
+				posY = true;
+		}
+		return (negX && posX) && (negY && posY) && maxUp > minRestingSlope;
+	}
+	else if (numContacts == 2)
+	{
+		GBEdge supportEdge(contacts[0].position, contacts[1].position);
+		GBVector3 pointOnLine = supportEdge.closestPointOnLine(pos) - pos;
+		GBVector3 edgeDir = supportEdge.getAOutDirection();
+		GBVector3 right = GBCross(edgeDir, contacts[0].normal).normalized();
+		GBVector3 forward = GBCross(edgeDir, right).normalized();
+
+		float localRight = GBDot(pointOnLine, right);
+		float localForward = GBDot(pointOnLine, forward);
+		GBVector3 up = GBCross(right, forward);
+		if (up.z < 0.0f)
+			up = -up;
+
+		maxUp = GBMax(maxUp, GBDot(up, GBVector3::up()));
+		return GBAbs(localRight) < tolerance && GBAbs(localForward) < tolerance && maxUp > minRestingSlope;
+	}
+	else if(numContacts == 1)
+	{
+		GBVector3 dp = pos - contacts[0].position;
+		GBVector3 right; 
+		GBVector3 forward;
+		GBVector3 normDp = dp.normalized();
+		if (normDp.z < 0.0f)
+			normDp = -normDp;
+		if (GBAbs(GBDot(dp, GBVector3::up()) > (1.0f - GBLargeEpsilon)))
+		{
+			right = GBCross(GBVector3::forward(), normDp).normalized();
+		}
+		else
+		{
+			right = GBCross(GBVector3::up(), normDp).normalized();
+		}
+		forward = GBCross(right, normDp).normalized();
+		float localRight = GBDot(dp, right);
+		float localForward = GBDot(dp, forward);
+
+		
+		maxUp = GBMax(maxUp, GBDot(normDp, GBVector3::up()));
+
+		return GBAbs(localRight) < tolerance && GBAbs(localForward) < tolerance && maxUp > minRestingSlope;
+		
+	}
+	return false;
 }
 
 struct GBBoxCollider : public GBCollider {

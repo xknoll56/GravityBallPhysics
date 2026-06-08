@@ -443,7 +443,7 @@ struct GBSimulation
 	}
 
 	int solverIterations = 8;   // 6–12 typical
-	static constexpr float maxDeltaTime = 1.0f / 60.0f;
+	static constexpr float maxDeltaTime = 1.0f / 30.0f;
 	float timeScale = 1.0f;
 
 	void init()
@@ -473,13 +473,19 @@ struct GBSimulation
 					GBCollider* pOther = surCols[k];
 					if (!pOther->pBody->isTrigger)
 					{
-						if (pOther->pBody->isStatic)
+						GBSATCollisionData data;
+						GBManifold manifold;
+						if (generateColliderManifold(pCol, pOther, data, manifold))
 						{
-							pCol->pBody->addStaticContact(pOther->pBody);
-						}
-						else
-						{
-							pCol->pBody->addDynamicContact(pOther->pBody);
+							if (manifold.pIncident)
+							{
+								manifold.pIncident->frameManifold.combineSupports(manifold, true);
+							}
+							if (manifold.pReference)
+							{
+								GBManifold refManifold = GBManifold::asReference(manifold);
+								manifold.pReference->frameManifold.combineSupports(refManifold, true);
+							}
 						}
 					}
 				}
@@ -1323,8 +1329,8 @@ struct GBSimulation
 	uint64_t frame = 0;
 	static constexpr float maxPenetration = 0.05f;
 	static constexpr float wakeThreshold = 0.3f;
-    static constexpr float sleepThreshold = 0.1f; // linear+angular speed below which sleep is considered
-	static constexpr float sleepTime = 0.5f;       // time to accumulate before sleeping
+    static constexpr float sleepThreshold = 0.080f; // linear+angular speed below which sleep is considered
+	static constexpr float sleepTime = 0.55f;       // time to accumulate before sleeping
 	static constexpr float sleepDampingRatio = 0.45f;  // The awake time needed out of the sleep timer that heavier contact based damping occurs 
 	static constexpr float slop = 0.005f;
 	float ellapsedTime = 0.0f;
@@ -1540,13 +1546,10 @@ struct GBSimulation
 									manifold.pIncident->addDynamicContact(manifold.pReference);
 									if (manifold.pReference)
 									{
-										manifold.pReference->addStaticContact(manifold.pIncident);
+										manifold.pReference->addDynamicContact(manifold.pIncident);
 									}
 
-									if (manifold.pIncident->isStatic)
-										manifold.flipAndSwap();
-									else
-										manifold.flipAndSwapIfContactOnTop(manifold.normal);
+									manifold.flipAndSwapIfContactOnTop(manifold.normal);
 
 									solveDynamicPenetration(manifold);
 
@@ -1567,11 +1570,6 @@ struct GBSimulation
 									}
 								}
 							}
-							else
-							{
-								bodyA->addStaticContact(bodyB);
-								bodyB->addStaticContact(bodyA);
-							}
 						}
 					}
 				}
@@ -1581,11 +1579,6 @@ struct GBSimulation
 			for (auto& rb : rigidBodies)
 			{
 				GBBody* body = rb.get();
-
-				//if (body->frameManifold.hasGroundedManifold)
-				//{
-				//	body->isGroundedCount++;
-				//}
 
 				if (body->isAwake())
 					body->updateTransform(interDeltaTime);
@@ -1597,23 +1590,19 @@ struct GBSimulation
 				body->awakeTimer += interDeltaTime;
 
 				bool hasStatic = body->hasStaticAttachment();
-				bool bodyIsBox = bodyIsPureColliderType(*body, ColliderType::Box);
 
 				if (hasStatic)
 				{
+					bool isBox = bodyIsPureColliderType(*body, ColliderType::Box);
+					bool isSphere = bodyIsPureColliderType(*body, ColliderType::Sphere);
+					bool isCapsule = bodyIsPureColliderType(*body, ColliderType::Capsule);
 
-					if (bodyIsBox &&
-						body->frameManifold.numContacts > 2
+					if ((isSphere || isCapsule || body->frameManifold.numContacts > 2)
 						&& body->awakeTimer >  sleepTime*sleepDampingRatio)
 					{
 
 						GBContact contact;
 						float upness = 1.0f - GBMax(0.0f, body->frameManifold.maxUpContact(contact));
-
-						//float supportRatio = body->getSupportRatio();
-
-						//float damping = 0.999f - 0.01 * body->frameManifold.numContacts * upness * (1.0f + supportRatio);
-
 						float damping = (0.999f - 0.01 * body->frameManifold.numContacts)*upness;
 
 						float t = 1.0f - exp(-0.8f * body->frameManifold.numContacts);
@@ -1623,16 +1612,24 @@ struct GBSimulation
 						GBVector3 velxy = body->velocity.xyComponent();
 						velxy *= damping;			
 						float velz = body->velocity.z;
-						//velz *= verticleDampFactor * upness * (1.0f + supportRatio);
 						velz *= verticleDampFactor * upness;
 
-						body->velocity = GBVector3(velxy.x, velxy.y,velz);
-
-						body->angularVelocity *= damping;
+						if (isSphere || isCapsule)
+						{
+							body->velocity = GBVector3(body->velocity.x, body->velocity.y, velz);
+						}
+						else
+						{
+							body->velocity = GBVector3(velxy.x, velxy.y, velz);
+							body->angularVelocity *= damping;
+						}
 					}
 					else
 					{
-						float damping = 0.99998f;
+						float damping = 0.998f;
+
+						if (isSphere || isCapsule)
+							damping = 0.99998f;
 
 						body->velocity *= damping;
 						body->angularVelocity *= damping;
@@ -1645,7 +1642,7 @@ struct GBSimulation
 				{
 					body->sleepTimer += interDeltaTime;
 
-					bool manifoldSleepCond = body->frameManifold.containsSupportOrigin(body->transform.position, 0.01);
+					bool manifoldSleepCond = body->frameManifold.containsSupportOrigin(body->transform.position, 0.005f);
 					if (!body->isSleeping && body->sleepTimer >= sleepTime && hasStatic && manifoldSleepCond)
 					{
 						body->isSleeping = true;
@@ -1684,6 +1681,17 @@ struct GBSimulation
 			{
 				dispatchExitListeners(pair.a->pBody->id, pair.b->pBody);
 				dispatchExitListeners(pair.b->pBody->id, pair.a->pBody);
+
+				// Remove all contacts from the frame manifold held by each other
+
+				pair.a->pBody->frameManifold.removeBodiesContact(pair.b->pBody);
+				pair.b->pBody->frameManifold.removeBodiesContact(pair.a->pBody);
+
+				if (pair.a->pBody->frameManifold.numContacts < 1)
+					pair.a->pBody->wakeIsland();
+
+				if (pair.b->pBody->frameManifold.numContacts<1)
+					pair.b->pBody->wakeIsland();
 			}
 		}
 
@@ -1694,10 +1702,6 @@ struct GBSimulation
 		for (auto& rb : rigidBodies)
 		{
 			GBBody* body = rb.get();
-			//if (body->isGroundedCount > 0)
-			//{
-			//	body->isGrounded = true;
-			//}
 
 			if (body->isKinematic && !body->ignoreKinematicVelocityClamp)
 			{
@@ -1709,26 +1713,11 @@ struct GBSimulation
 				{
 					body->velocity.z = verticleSpeed;
 				}
-
 			}
-
-			if (body->isMovable())
+			if (body->isAwake())
 			{
-				const static float floatCheckFrequency = 0.5f;
-				if ((int)(ellapsedTime*floatCheckFrequency) > floatingCheck)
-				{
-					floatingCheck++;
-					if (body->isSleeping)
-					{
-						GBManifold supportManifold = body->frameManifold;
-
-						if (supportManifold.numContacts < 2)
-						{
-							wakeSurroundingBodies(body->aabb, maxPenetration);
-						}
-					}
-
-				}
+				if (body->frameManifold.numContacts < 1)
+					body->wakeIsland();
 			}
 		}
 	}
