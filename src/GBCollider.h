@@ -93,6 +93,29 @@ typedef GBHit GBRay;   // temporary alias
 
 struct GBPlane;
 
+enum GBSATCollisionType
+{
+	FaceA = 0,
+	FaceB,
+	EdgeEdge
+};
+
+struct GBSATCollisionData
+{
+	GBSATCollisionType bestType;
+	GBCardinal bestCardinal;
+	GBVector3 bestAxis;
+	float minOverlap;
+
+	GBSATCollisionData()
+	{
+		bestType = GBSATCollisionType::FaceA;
+		bestCardinal = GBCardinal::PosX;
+		bestAxis = GBVector3::forward();
+		minOverlap = FLT_MAX;
+	}
+};
+
 const static int MAX_CONTACTS = 10;
 struct GBManifold
 {
@@ -105,6 +128,8 @@ struct GBManifold
 	bool isEdge = false;
 	bool isDynamicManifold = false;
 	bool isJoint = false;
+	const static int manifoldContactClamp = 4;
+	GBSATCollisionData data;
 
 	GBManifold()
 	{
@@ -249,8 +274,9 @@ struct GBManifold
 		--numContacts;
 	}
 
-	void removeBodiesContact(const GBBody* body)
+	bool removeBodiesContact(const GBBody* body)
 	{
+		bool contactRemoved = false;
 		for (int i = 0; i < numContacts; i++)
 		{
 			if ((contacts[i].pReference &&
@@ -260,8 +286,10 @@ struct GBManifold
 			{
 				removeContact(i);
 				i--;
+				contactRemoved = true;
 			}
 		}
+		return contactRemoved;
 	}
 
 	void applyTransformation(const GBTransform& transform)
@@ -357,8 +385,9 @@ struct GBManifold
 		}
 	}
 
-	void combineSupports(const GBManifold& other, bool updateNormal = true, float epsilon = GBEpsilon, float upwardThreshold = 0.05f)
+	bool combineSupports(const GBManifold& other, bool updateNormal = true, float epsilon = GBEpsilon, float upwardThreshold = 0.05f)
 	{
+		bool supportAdded = false;
 		if (updateNormal)
 		{
 			if (other.separation > separation)
@@ -367,8 +396,12 @@ struct GBManifold
 		for (int i = 0; i < other.numContacts; i++)
 		{
 			if (other.contacts[i].normal.z > upwardThreshold)
+			{
 				addContact(other.contacts[i], true, upwardThreshold);
+				supportAdded = true;
+			}
 		}
+		return supportAdded;
 	}
 
 	void useNormal(const GBManifold& other)
@@ -467,7 +500,7 @@ struct GBManifold
 		GBManifold support;
 		for (int i = 0; i < numContacts; i++)
 		{
-			if (contacts[i].normal.z>0.0f)
+			if (contacts[i].normal.z > 0.0f)
 			{
 				support.addContact(contacts[i], true, 0.005f);
 			}
@@ -478,12 +511,21 @@ struct GBManifold
 
 	bool containsSupportOrigin(GBVector3 pos, float tolerance = 0.005f, float minRestingSlope = 0.7071f);
 
-	void capContacts(int capacity = 4)
+	void capContacts(int capacity = manifoldContactClamp)
 	{
 		if (numContacts > capacity)
 			numContacts = capacity;
 	}
 
+
+	void setContactColliders(GBCollider* _pIncident, GBCollider* _pReference)
+	{
+		for (int i = 0; i < numContacts; i++)
+		{
+			contacts[i].pIncident = _pIncident;
+			contacts[i].pReference = _pReference;
+		}
+	}
 };
 
 struct GBStaticGeometry;
@@ -803,7 +845,7 @@ struct GBBody
 			return;
 
 		for (GBBody* b : dynamicBodies)
-			if (b && !b->isStatic)
+			if (b && !b->isStatic && b->frameManifold.size() < 1)
 				b->wakeRecursive(visited,depth, maxDepth);
 	}
 
@@ -854,16 +896,18 @@ struct GBBody
 		isGrounded = false;
 		staticGeometries.clear();
 
+		std::unordered_set<GBBody*> contactBodies;
 		for (int i = 0; i < frameManifold.numContacts; i++)
 		{
 			if (frameManifold.contacts[i].pIncident && frameManifold.contacts[i].pReference)
 			{
-				GBBody* pOther = frameManifold.contacts[i].pIncident->pBody == this ?
-					frameManifold.contacts[i].pIncident->pBody : frameManifold.contacts[i].pReference->pBody;
-				pOther->frameManifold.removeBodiesContact(this);
-				frameManifold.removeBodiesContact(pOther);
+				GBBody* pOther = frameManifold.getOtherBody(this);
+				if(pOther)
+					contactBodies.insert(pOther);
 			}
 		}
+		for (GBBody* pOther : contactBodies)
+			pOther->frameManifold.removeBodiesContact(pOther);
 		frameManifold.reset();
 	}
 
@@ -1170,7 +1214,7 @@ struct GBCapsuleCollider : public GBCollider {
 		bottomSphere = transform.position - up * (height * 0.5f);
 	}
 
-	GBEdge getSphereToSphereEdge()
+	GBEdge getSphereToSphereEdge() const
 	{
 		GBVector3 lower, upper;
 		extractSphereLocations(upper, lower);
@@ -1414,6 +1458,7 @@ struct GBQuad : GBStaticGeometry
 struct GBTriangle : GBStaticGeometry
 {
 	GBVector3 vertices[3];
+	GBEdge edges[3];
 	GBVector3 normal;
 
 	GBTriangle(const GBVector3& v0, const GBVector3& v1, const GBVector3& v2) :
@@ -1423,6 +1468,10 @@ struct GBTriangle : GBStaticGeometry
 		vertices[1] = v1;
 		vertices[2] = v2;
 		normal = GBCross(v1 - v0, v2 - v0).normalized();
+
+		edges[0] = GBEdge(vertices[0], vertices[1]);
+		edges[1] = GBEdge(vertices[1], vertices[2]);
+		edges[2] = GBEdge(vertices[2], vertices[0]);
 	}
 
 	GBPlane toPlane() const
@@ -1430,17 +1479,10 @@ struct GBTriangle : GBStaticGeometry
 		return GBPlane(normal, vertices[0]);
 	}
 
-	void extractEdges(GBEdge outEdges[3]) const
-	{
-		outEdges[0] = GBEdge(vertices[0], vertices[1]);
-		outEdges[1] = GBEdge(vertices[1], vertices[2]);
-		outEdges[2] = GBEdge(vertices[2], vertices[0]);
-	}
+
 
 	GBEdge closestEdgeToPoint(const GBVector3& p) const
 	{
-		GBEdge edges[3];
-		extractEdges(edges);
 		GBEdge closestEdge = edges[0];
 		float minDistSq = FLT_MAX;
 		for (int i = 0; i < 3; i++)
@@ -1779,6 +1821,15 @@ struct GBBoxCollider : public GBCollider {
 			GBAbs(GBDot(transform.forward(), dp)) <= halfExtents.x * (1.0f + epsilon) &&
 			GBAbs(GBDot(transform.right(), dp)) <= halfExtents.y * (1.0f + epsilon) &&
 			GBAbs(GBDot(transform.up(), dp)) <= halfExtents.z * (1.0f + epsilon);
+	}
+
+	static GBBoxCollider boxFromAABB(const GBAABB& aabb)
+	{
+		GBBoxCollider box;
+		box.transform.position = aabb.center;
+		box.transform.rotation = GBQuaternion();
+		box.halfExtents = aabb.halfExtents;
+		return box;
 	}
 };
 

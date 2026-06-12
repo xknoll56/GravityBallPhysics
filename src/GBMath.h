@@ -30,6 +30,12 @@ struct GBVector3 {
     float length() const { return std::sqrt(x * x + y * y + z * z); }
     float lengthSquared() const { return x * x + y * y + z * z; }
     GBVector3 normalized() const { float l = length(); return l ? (*this / l) : GBVector3(0, 0, 0); }
+    void normalize() {
+        float l = length();
+        if (l > 0.0f) {
+            *this *= (1.0f / l);
+        }
+    }
 
     // Epsilon comparison
     bool epsilonEqual(const GBVector3& rhs, float epsilon = 1e-6f) const {

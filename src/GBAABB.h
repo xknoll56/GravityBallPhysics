@@ -295,13 +295,16 @@ struct GBEdge {
 		b = transform.transformPoint(b);
 	}
 
-	bool isPointOnEdge(const GBVector3& point, GBVector3* pClampedPoint = nullptr) const
+	bool isPointOnEdge(const GBVector3& point, GBVector3* pClampedPoint = nullptr, float* projection = nullptr) const
 	{
 		GBVector3 dp = point - a;
 		GBVector3 out = b - a;
 		float dist = out.length();
 		out /= dist;
 		float proj = GBDot(out, dp);
+
+		if (projection)
+			*projection = proj;
 
 		if (pClampedPoint)
 		{

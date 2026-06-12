@@ -27,6 +27,12 @@ struct GBTransform {
         : position(pos), rotation(GBQuaternion()) {
     }
 
+    GBTransform(GBQuaternion rot) :
+        position(GBVector3()), rotation(rot)
+    {
+
+    }
+
     // Combine two transforms: this * other
     GBTransform operator*(const GBTransform& other) const {
         GBTransform result;

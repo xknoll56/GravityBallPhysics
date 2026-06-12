@@ -473,9 +473,8 @@ struct GBSimulation
 					GBCollider* pOther = surCols[k];
 					if (!pOther->pBody->isTrigger)
 					{
-						GBSATCollisionData data;
 						GBManifold manifold;
-						if (generateColliderManifold(pCol, pOther, data, manifold))
+						if (generateColliderManifold(pCol, pOther, manifold))
 						{
 							if (manifold.pIncident)
 							{
@@ -988,7 +987,7 @@ struct GBSimulation
 		return outManifold.numContacts > 0;
 	}
 
-	bool generateColliderManifold(GBCollider* col, GBCollider* pOther, GBSATCollisionData& data, GBManifold& outManifold)
+	bool generateColliderManifold(GBCollider* col, GBCollider* pOther, GBManifold& outManifold)
 	{
 		outManifold.clear();
 
@@ -1003,7 +1002,7 @@ struct GBSimulation
 				generateSphereManifold((GBSphereCollider*)col, pOther, outManifold);
 				break;
 			case ColliderType::Box:
-				generateBoxManifold((GBBoxCollider*)col, pOther, data, outManifold);
+				generateBoxManifold((GBBoxCollider*)col, pOther, outManifold.data, outManifold);
 				break;
 			case ColliderType::Capsule:
 				generateCapsuleManifold((GBCapsuleCollider*)col, pOther, outManifold);
@@ -1027,7 +1026,7 @@ struct GBSimulation
 			{
 				GBSATCollisionData data;
 				GBManifold manifold;
-				if (generateColliderManifold(pCol, pOtherCol, data, manifold))
+				if (generateColliderManifold(pCol, pOtherCol, manifold))
 				{
 					if (manifold.pReference && pCol->pBody == manifold.pReference)
 						manifold.flipAndSwap();
@@ -1331,7 +1330,7 @@ struct GBSimulation
 	static constexpr float wakeThreshold = 0.3f;
     static constexpr float sleepThreshold = 0.080f; // linear+angular speed below which sleep is considered
 	static constexpr float sleepTime = 0.55f;       // time to accumulate before sleeping
-	static constexpr float sleepDampingRatio = 0.45f;  // The awake time needed out of the sleep timer that heavier contact based damping occurs 
+	static constexpr float sleepDampingRatio = 0.5f;  // The awake time needed out of the sleep timer that heavier contact based damping occurs 
 	static constexpr float slop = 0.005f;
 	float ellapsedTime = 0.0f;
 	int integerTime = 0;
@@ -1427,11 +1426,11 @@ struct GBSimulation
 					continue;
 				bool didColide = false;
 
-				for (GBCollider* colA: bodyA->colliders)
+				for (GBCollider* colA : bodyA->colliders)
 				{
 					std::vector<GBCollider*> checkColliders;
 					extractBroadPhaseColliders(colA, checkColliders);
-					for (GBCollider* colB: checkColliders)
+					for (GBCollider* colB : checkColliders)
 					{
 						GBBody* bodyB = colB->pBody;
 						if (bodyA == bodyB || !bodyA->sharesLayer(*bodyB))
@@ -1448,38 +1447,43 @@ struct GBSimulation
 							if (bodyB->isTrigger)
 								continue;
 
-							GBSATCollisionData data;
 							GBManifold manifold;
-							if (generateColliderManifold(colA, colB,data, manifold))
+							if (generateColliderManifold(colA, colB, manifold))
 							{
-									if (manifold.numContacts == 0)
-										continue;
+								if (manifold.numContacts == 0)
+									continue;
 
-									curPairManifolds[pair] = manifold;
+								manifold.capContacts();
 
-									manifold.flipAndSwapIfContactOnTop(manifold.normal);
+								curPairManifolds[pair] = manifold;
 
-									GBContact c;
-									float upness = manifold.maxUpContact(c);
-									if (upness > 0.0f)
-										solveDynamicPenetration(manifold);
-									else
-										solveDynamicPenetrationEqually(manifold);
+								manifold.flipAndSwapIfContactOnTop(manifold.normal);
 
-									solveDynamicManifold(manifold, *manifold.pIncident, *manifold.pReference, interDeltaTime, !manifold.pIncident->isKinematic);
+								GBContact c;
+								float upness = manifold.maxUpContact(c);
+								if (upness > 0.0f)
+									solveDynamicPenetration(manifold);
+								else
+									solveDynamicPenetrationEqually(manifold);
 
-									bodyA->addDynamicContact(bodyB);
-									bodyB->addDynamicContact(bodyA);
+								solveDynamicManifold(manifold, *manifold.pIncident, *manifold.pReference, interDeltaTime, !manifold.pIncident->isKinematic);
 
-									if (manifold.pIncident)
-									{
-										manifold.pIncident->frameManifold.combineSupports(manifold, true, slop);
-									}
-									if (manifold.pReference)
-									{
-										GBManifold refManifold = GBManifold::asReference(manifold);
-										manifold.pReference->frameManifold.combineSupports(refManifold, true, slop);
-									}
+								bool supportAdded = false;
+								if (manifold.pIncident)
+								{
+									supportAdded = manifold.pIncident->frameManifold.combineSupports(manifold, true, slop);
+								}
+								if (manifold.pReference)
+								{
+									GBManifold refManifold = GBManifold::asReference(manifold);
+									if (manifold.pReference->frameManifold.combineSupports(refManifold, true, slop))
+										supportAdded = true;
+								}
+								if (supportAdded && manifold.pIncident && manifold.pReference)
+								{
+									manifold.pIncident->addDynamicContact(manifold.pReference);
+									manifold.pReference->addDynamicContact(manifold.pIncident);
+								}
 							}
 
 						}
@@ -1524,9 +1528,8 @@ struct GBSimulation
 						if (bodyA->isStatic && bodyB->isStatic)
 							continue;
 
-						GBSATCollisionData data;
 						GBManifold manifold;
-						if (generateColliderManifold(colA, colB, data, manifold))
+						if (generateColliderManifold(colA, colB, manifold))
 						{
 							if (manifold.numContacts == 0)
 								continue;
@@ -1537,18 +1540,15 @@ struct GBSimulation
 								if (manifold.numContacts > 0)
 								{
 
+									manifold.capContacts();
+
 									curPairManifolds[ColliderPair(colA,colB)] = manifold;
 
 									// If B is a trigger, just add manifold for callback and don't resolve
 									if (bodyB->isTrigger)
 										continue;
 
-									manifold.pIncident->addDynamicContact(manifold.pReference);
-									if (manifold.pReference)
-									{
-										manifold.pReference->addDynamicContact(manifold.pIncident);
-									}
-
+									
 									manifold.flipAndSwapIfContactOnTop(manifold.normal);
 
 									solveDynamicPenetration(manifold);
@@ -1558,15 +1558,21 @@ struct GBSimulation
 									else
 										solveStaticManifold(manifold, *manifold.pIncident);
 
-
+									bool supportAdded = false;
 									if (manifold.pIncident)
 									{
-										manifold.pIncident->frameManifold.combineSupports(manifold, true, slop);
+										supportAdded = manifold.pIncident->frameManifold.combineSupports(manifold, true, slop);
 									}
 									if (manifold.pReference)
 									{
 										GBManifold refManifold = GBManifold::asReference(manifold);
-										manifold.pReference->frameManifold.combineSupports(refManifold, true, slop);
+										if (manifold.pReference->frameManifold.combineSupports(refManifold, true, slop))
+											supportAdded = true;
+									}
+									if (supportAdded && manifold.pIncident && manifold.pReference)
+									{
+										manifold.pIncident->addDynamicContact(manifold.pReference);
+										manifold.pReference->addDynamicContact(manifold.pIncident);
 									}
 								}
 							}
@@ -1600,12 +1606,13 @@ struct GBSimulation
 					if ((isSphere || isCapsule || body->frameManifold.numContacts > 2)
 						&& body->awakeTimer >  sleepTime*sleepDampingRatio)
 					{
+						int cappedContacts = body->frameManifold.numContacts > GBManifold::manifoldContactClamp ? GBManifold::manifoldContactClamp : body->frameManifold.numContacts;
 
 						GBContact contact;
 						float upness = 1.0f - GBMax(0.0f, body->frameManifold.maxUpContact(contact));
-						float damping = (0.999f - 0.01 * body->frameManifold.numContacts)*upness;
+						float damping = (0.999f - 0.01 * cappedContacts)*upness;
 
-						float t = 1.0f - exp(-0.8f * body->frameManifold.numContacts);
+						float t = 1.0f - exp(-0.8f * cappedContacts);
 						damping = GBLerp(0.9998f, 0.965f,t);
 						float verticleDampFactor = GBLerp(0.995f, 0.985, t);
 						
@@ -1642,7 +1649,7 @@ struct GBSimulation
 				{
 					body->sleepTimer += interDeltaTime;
 
-					bool manifoldSleepCond = body->frameManifold.containsSupportOrigin(body->transform.position, 0.005f);
+					bool manifoldSleepCond = body->frameManifold.containsSupportOrigin(body->transform.position, GBLargeEpsilon);
 					if (!body->isSleeping && body->sleepTimer >= sleepTime && hasStatic && manifoldSleepCond)
 					{
 						body->isSleeping = true;
@@ -1683,15 +1690,9 @@ struct GBSimulation
 				dispatchExitListeners(pair.b->pBody->id, pair.a->pBody);
 
 				// Remove all contacts from the frame manifold held by each other
-
 				pair.a->pBody->frameManifold.removeBodiesContact(pair.b->pBody);
 				pair.b->pBody->frameManifold.removeBodiesContact(pair.a->pBody);
 
-				if (pair.a->pBody->frameManifold.numContacts < 1)
-					pair.a->pBody->wakeIsland();
-
-				if (pair.b->pBody->frameManifold.numContacts<1)
-					pair.b->pBody->wakeIsland();
 			}
 		}
 
@@ -1752,9 +1753,8 @@ struct GBSimulation
 
 					if (bodyA->isMovable() && bodyB->isMovable())
 					{
-						GBSATCollisionData data;
 						GBManifold manifold;
-						if (generateColliderManifold(colA, colB, data, manifold))
+						if (generateColliderManifold(colA, colB, manifold))
 						{
 							generatedManifolds.push_back(manifold);
 						}

@@ -268,8 +268,14 @@ struct GBGrid
 		sampleGrid(sample, overlappingCells); // now we get pointers
 		for (GBCell* cell : overlappingCells)
 		{
-			cell->staticGeometry.push_back(&geometry);
-			geometry.occupiedCells.push_back(cell);
+			GBSATCollisionData data;
+			GBAABB cellAABB = cell->toAABB();
+			GBBoxCollider temp = GBBoxCollider::boxFromAABB(cellAABB);
+			if (GBManifoldGeneration::GBCollisionBoxTriangleSAT(temp, *(GBTriangle*)&geometry, data))
+			{
+				cell->staticGeometry.push_back(&geometry);
+				geometry.occupiedCells.push_back(cell);
+			}
 		}
 		if (std::find(staticGeometry.begin(), staticGeometry.end(), &geometry) == staticGeometry.end())
 			staticGeometry.push_back(&geometry);
@@ -858,6 +864,7 @@ struct GBGridMap
 		case GBStaticGeometryType::TRIANGLE:
 			GBTriangle* pTriangle = (GBTriangle*)&geometry;
 			sample = pTriangle->toAABB();
+			sample.halfExtents = GBMax(sample.halfExtents, { 0.05f, 0.05f, 0.05f });
 			break;
 		}
 		std::vector<GBGrid*> occupiedGrids;
