@@ -120,6 +120,11 @@ struct GBVector3 {
     {
         return GBVector3(0, y, z);
     }
+
+    static GBVector3 uniformSize(float size)
+    {
+        return { size, size, size };
+    }
 };
 
 constexpr float GB_PI = 3.14159265359f;

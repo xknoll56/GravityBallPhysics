@@ -25,6 +25,28 @@ struct GBTerrain
 	}
 };
 
+struct GBSpringJoint
+{
+	GBBody* A = nullptr;
+	GBBody* B = nullptr;
+
+	GBVector3 localAnchorA;
+	GBVector3 localAnchorB;
+
+	float restLength = 0.0f;
+
+	float stiffness = 200.0f;   // k
+	float damping = 20.0f;      // c
+
+	GBSpringJoint(GBBody* A, GBBody* B, GBVector3 localAnchorA) :
+		A(A), B(B), localAnchorA(localAnchorA)
+	{
+		localAnchorB = B->transform.worldToLocalPoint(B->transform.localToWorldPoint(localAnchorA));
+	}
+
+	GBVector3 accumulatedImpulse; // optional warm starting
+};
+
 struct GBSimulation
 {
 	//GBGrid grid;
@@ -33,6 +55,7 @@ struct GBSimulation
 	std::vector<std::unique_ptr<GBSphereCollider>> sphereColliders;
 	std::vector<std::unique_ptr<GBBoxCollider>> boxColliders;
 	std::vector<std::unique_ptr<GBCapsuleCollider>> capsuleColliders;
+	std::vector<std::unique_ptr<GBSpringJoint>> springJoints;
 	std::vector<std::unique_ptr<GBBody>> rigidBodies;
 	std::vector<std::unique_ptr<GBCloth>> cloths;
 	std::vector< std::unique_ptr<GBTriangle>> triangles;
@@ -442,7 +465,7 @@ struct GBSimulation
 		gridMap.moveBody(body);
 	}
 
-	int solverIterations = 8;   // 6–12 typical
+	int solverIterations = 10;   // 6–12 typical
 	static constexpr float maxDeltaTime = 1.0f / 30.0f;
 	float timeScale = 1.0f;
 
@@ -835,6 +858,80 @@ struct GBSimulation
 			}
 		}
 
+	}
+
+	void solveSpringJoint(GBSpringJoint& j, float dt)
+	{
+		GBBody& A = *j.A;
+		GBBody& B = *j.B;
+
+		if (!A.isMovable() && !B.isMovable())
+			return;
+
+		GBVector3 pa = A.transform.localToWorldPoint(j.localAnchorA);
+		GBVector3 pb = B.transform.localToWorldPoint(j.localAnchorB);
+
+		GBVector3 rA = pa - A.transform.position;
+		GBVector3 rB = pb - B.transform.position;
+
+		GBVector3 vA = A.velocity + GBCross(A.angularVelocity, rA);
+		GBVector3 vB = B.velocity + GBCross(B.angularVelocity, rB);
+
+		GBVector3 relVel = vB - vA;
+
+		GBVector3 delta = pb - pa;
+
+		float dist = delta.length();
+		if (dist < 1e-6f)
+			return;
+
+		GBVector3 n = delta / dist;
+
+		// spring extension (x)
+		float x = dist - j.restLength;
+
+		// relative velocity along spring
+		float vn = GBDot(relVel, n);
+
+		// --- spring force (Hooke + damping) ---
+		float force =
+			(-j.stiffness * x) -
+			(j.damping * vn);
+
+		float invMass =
+			A.invMass + B.invMass +
+			GBDot(GBCross(rA, n), A.invInertia * GBCross(rA, n)) +
+			GBDot(GBCross(rB, n), B.invInertia * GBCross(rB, n));
+
+		// convert to impulse
+		float jImpulse = force * dt;
+
+		jImpulse /= invMass;
+
+		GBVector3 impulse = n * jImpulse;
+
+		// optional clamp for stability (VERY recommended in your engine)
+		const float maxImpulse = 500.0f;
+		float len = impulse.length();
+		if (len > maxImpulse)
+			impulse *= (maxImpulse / len);
+
+		// apply linear
+		if (A.isMovable())
+		{
+			A.velocity -= impulse * A.invMass;
+
+			A.angularVelocity -=
+				A.invInertia * GBCross(rA, impulse);
+		}
+
+		if (B.isMovable())
+		{
+			B.velocity += impulse * B.invMass;
+
+			B.angularVelocity +=
+				B.invInertia * GBCross(rB, impulse);
+		}
 	}
 
 	bool overlapTest(GBCollider* colA, GBCollider* colB, GBSATCollisionData& outData, GBManifold& outManifold)
@@ -1659,7 +1756,8 @@ struct GBSimulation
 				}
 				else if(speed > wakeThreshold && angSpeed > wakeThreshold)
 				{
-					body->wakeIsland();
+					if(body->isSleeping)
+						body->wakeIsland();
 				}
 				
 			}
