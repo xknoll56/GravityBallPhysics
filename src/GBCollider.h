@@ -63,15 +63,15 @@ struct GBHit {
 
 	GBVector3 position;
 	GBVector3 normal; // From collider A to B
-	float penetrationDepth;
+	float distance;
 	GBCollider* pReference;
 	GBCollider* pIncident;
 	GBHit()
-		: position(0, 0, 0), normal(0, 0, 0), penetrationDepth(0), pReference(nullptr), pIncident(nullptr)
+		: position(0, 0, 0), normal(0, 0, 0), distance(0), pReference(nullptr), pIncident(nullptr)
 	{
 	}
 	GBHit(const GBVector3& position, const GBVector3& normal, float penetrationDepth, GBCollider* pReference = nullptr, GBCollider* pIncident = nullptr)
-		: position(position), normal(normal), penetrationDepth(penetrationDepth), pReference(pReference), pIncident(pIncident)
+		: position(position), normal(normal), distance(penetrationDepth), pReference(pReference), pIncident(pIncident)
 	{
 	}
 
@@ -84,7 +84,7 @@ struct GBHit {
 
 	GBVector3 getShapecastEndpoint(GBVector3 startPos, GBVector3 dir)
 	{
-		return startPos + dir * penetrationDepth;
+		return startPos + dir * distance;
 	}
 };
 
@@ -164,13 +164,13 @@ struct GBManifold
 	{
 		// shallowest = smallest penetrationDepth
 		int index = 0;
-		float minDepth = contacts[0].penetrationDepth;
+		float minDepth = contacts[0].distance;
 
 		for (int i = 1; i < numContacts; i++)
 		{
-			if (contacts[i].penetrationDepth < minDepth)
+			if (contacts[i].distance < minDepth)
 			{
-				minDepth = contacts[i].penetrationDepth;
+				minDepth = contacts[i].distance;
 				index = i;
 			}
 		}
@@ -187,7 +187,7 @@ struct GBManifold
 			int j = i - 1;
 
 			while (j >= 0 &&
-				contacts[j].penetrationDepth < key.penetrationDepth)
+				contacts[j].distance < key.distance)
 			{
 				contacts[j + 1] = contacts[j];
 				j--;
@@ -246,8 +246,8 @@ struct GBManifold
 			// Replace shallowest if new contact is deeper
 			int shallowest = findShallowest();
 
-			if (contact.penetrationDepth >
-				contacts[shallowest].penetrationDepth)
+			if (contact.distance >
+				contacts[shallowest].distance)
 			{
 				contacts[shallowest] = contact;
 			}
@@ -368,7 +368,7 @@ struct GBManifold
 			avg += contacts[i].position;
 		}
 		avg *= (1.0f / (float)numContacts);
-		float sep = separation == 0.0f ? contacts[0].penetrationDepth : separation;
+		float sep = separation == 0.0f ? contacts[0].distance : separation;
 		return GBContact(avg, contacts[0].normal, sep);
 	}
 
@@ -416,7 +416,7 @@ struct GBManifold
 	void useNormal(const GBContact& contact)
 	{
 		normal = contact.normal;
-		separation = GBAbs(contact.penetrationDepth);
+		separation = GBAbs(contact.distance);
 		alignContactsWithNormal();
 	}
 
@@ -425,7 +425,7 @@ struct GBManifold
 		for (int i = 0; i < numContacts; i++)
 		{
 			contacts[i].normal = GBAlign(normal, contacts[i].normal);
-			contacts[i].penetrationDepth = GBAbs(contacts[i].penetrationDepth);
+			contacts[i].distance = GBAbs(contacts[i].distance);
 		}
 	}
 
@@ -465,7 +465,7 @@ struct GBManifold
 	{
 		for (int i = 0; i < numContacts; i++)
 		{
-			contacts[i].penetrationDepth = GBAbs(contacts[i].penetrationDepth);
+			contacts[i].distance = GBAbs(contacts[i].distance);
 		}
 	}
 

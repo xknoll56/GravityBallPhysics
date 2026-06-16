@@ -27,7 +27,7 @@ struct GBManifoldGeneration
 		// Ensure normal faces against ray
 		outContact.normal = (denom < 0.0f) ? plane.normal : -plane.normal;
 
-		outContact.penetrationDepth = t;
+		outContact.distance = t;
 		return true;
 	}
 
@@ -110,7 +110,7 @@ struct GBManifoldGeneration
 		}
 
 		outContact.normal = normal;
-		outContact.penetrationDepth = inside ? 0.0f : tHit;
+		outContact.distance = inside ? 0.0f : tHit;
 
 		return true;
 	}
@@ -158,7 +158,7 @@ struct GBManifoldGeneration
 				(rayOrigin - spherePos).normalized();
 		}
 
-		outContact.penetrationDepth = tHit;
+		outContact.distance = tHit;
 
 		return true;
 	}
@@ -238,14 +238,14 @@ struct GBManifoldGeneration
 
 		if (GBRaycastSphere(s0, rayOrigin, rayDir, c0, bestT))
 		{
-			bestT = c0.penetrationDepth;
+			bestT = c0.distance;
 			outContact = c0;
 			hit = true;
 		}
 
 		if (GBRaycastSphere(s1, rayOrigin, rayDir, c1, bestT))
 		{
-			bestT = c1.penetrationDepth;
+			bestT = c1.distance;
 			outContact = c1;
 			hit = true;
 		}
@@ -263,7 +263,7 @@ struct GBManifoldGeneration
 			outContact.normal =
 				(outContact.position - proj).normalized();
 
-			outContact.penetrationDepth = bestT;
+			outContact.distance = bestT;
 			return true;
 		}
 
@@ -323,7 +323,7 @@ struct GBManifoldGeneration
 	{
 		if (detectOverlap && GBContactSpherePoint(spherePos, radius, point, outContact))
 		{
-			outContact.penetrationDepth = 0.0f;
+			outContact.distance = 0.0f;
 			outContact.position = spherePos;
 			if (castEndpoint)
 			{
@@ -336,7 +336,7 @@ struct GBManifoldGeneration
 			outContact.position = point;
 			if (castEndpoint)
 			{
-				*castEndpoint = spherePos + dir * outContact.penetrationDepth;
+				*castEndpoint = spherePos + dir * outContact.distance;
 			}
 			return true;
 		}
@@ -357,7 +357,7 @@ struct GBManifoldGeneration
 		castCollider.transform.position = spherePos;
 		if (detectOverlap && GBContactSphereSphere(castCollider, sphere, outContact))
 		{
-			outContact.penetrationDepth = 0.0f;
+			outContact.distance = 0.0f;
 			if (castEndpoint)
 				*castEndpoint = spherePos;
 			return true;
@@ -386,7 +386,7 @@ struct GBManifoldGeneration
 		GBCapsuleCollider cap = GBCapsuleCollider::capsuleFromEdge(edge, radius);
 		if (detectOverlap && GBContactCapsulePoint(cap, spherePos, outContact))
 		{
-			outContact.penetrationDepth = 0.0f;
+			outContact.distance = 0.0f;
 			outContact.position = spherePos;
 			if (castEndpoint)
 			{
@@ -396,7 +396,7 @@ struct GBManifoldGeneration
 		}
 		if (GBRaycastCapsule(cap, spherePos, dir, outContact, maxDistance))
 		{
-			GBVector3 endPoint = spherePos + dir * outContact.penetrationDepth;
+			GBVector3 endPoint = spherePos + dir * outContact.distance;
 			if (castEndpoint)
 			{
 				*castEndpoint = endPoint;
@@ -434,9 +434,9 @@ struct GBManifoldGeneration
 
 		if (detectOverlap && GBRaycastPlane(plane, spherePos, normal, outContact, true))
 		{
-			if (GBAbs(outContact.penetrationDepth) <= radius)
+			if (GBAbs(outContact.distance) <= radius)
 			{
-				outContact.penetrationDepth = 0.0f;
+				outContact.distance = 0.0f;
 				if (castEndpoint)
 				{
 					*castEndpoint = spherePos;
@@ -476,7 +476,7 @@ struct GBManifoldGeneration
 			{
 				// Check the closest edge
 				GBEdge edge = quad.closestEdgeToPoint(outContact.position);
-				if (outContact.penetrationDepth > 0.0f)
+				if (outContact.distance > 0.0f)
 				{
 					return GBSphereCastEdge(spherePos, radius, dir, edge, outContact, castEndpoint, maxDistance);
 				}
@@ -509,7 +509,7 @@ struct GBManifoldGeneration
 			{
 				// Check the closest edge
 				GBEdge edge = triangle.closestEdgeToPoint(outContact.position);
-				if (outContact.penetrationDepth > 0.0f)
+				if (outContact.distance > 0.0f)
 				{
 					return GBSphereCastEdge(spherePos, radius, dir, edge, outContact, castEndpoint, maxDistance);
 				}
@@ -537,7 +537,7 @@ struct GBManifoldGeneration
 		grown.grow(radius);
 		if (GBRaycastAABB(grown, spherePos, normDir, outContact, maxDistance))
 		{
-			GBVector3 endPoint = spherePos + normDir *outContact.penetrationDepth;
+			GBVector3 endPoint = spherePos + normDir *outContact.distance;
 			if (castEndpoint)
 			{
 				*castEndpoint = endPoint;
@@ -615,7 +615,7 @@ struct GBManifoldGeneration
 				GBSphereCastSphere(spherePos, radius, dir, sc, outContact, castEndpoint, maxDistance);
 			}
 
-			if (outContact.penetrationDepth == 0.0f)
+			if (outContact.distance == 0.0f)
 			{
 				*castEndpoint = spherePos;
 			}
@@ -636,7 +636,7 @@ struct GBManifoldGeneration
 		{
 			outContact.position = point;
 			outContact.normal = dir.normalized();
-			outContact.penetrationDepth = GBAbs(radius - dist);
+			outContact.distance = GBAbs(radius - dist);
 			return true;
 		}
 		return false;
@@ -672,7 +672,7 @@ struct GBManifoldGeneration
 				float dist = sqrt(forAmount * forAmount + rightAmount * rightAmount);
 				GBVector3 normal = (forward * forAmount + right * rightAmount) / dist;
 
-				outContact.penetrationDepth = GBAbs(capsule.radius - dist);
+				outContact.distance = GBAbs(capsule.radius - dist);
 				outContact.normal = -normal;
 				outContact.pIncident = (GBCollider*)&capsule;
 				outContact.position = point;
@@ -708,7 +708,7 @@ struct GBManifoldGeneration
 			if (dist <= radius)
 			{
 				outContact.normal = (spherePos - outContact.position).normalized();
-				outContact.penetrationDepth = radius - dist;
+				outContact.distance = radius - dist;
 				return true;
 			}
 		}
@@ -773,102 +773,10 @@ struct GBManifoldGeneration
 
 		outContact.normal = normal;
 		outContact.position = edgePoint;
-		outContact.penetrationDepth = capsule.radius - dist;
+		outContact.distance = capsule.radius - dist;
 
 		return true;
 	}
-
-
-	//static bool GBContactCapsuleEdge(
-	//	const GBCapsuleCollider& capsule,
-	//	const GBEdge& edge,
-	//	GBContact& outContact,
-	//	GBVector3* pClosestOnEdge = nullptr)
-	//{
-	//	GBEdge connection;
-
-	//	GBVector3 lower, upper, up;
-	//	capsule.extractSphereLocations(upper, lower, &up);
-
-	//	GBEdge capEdge = GBEdge(lower, upper);
-
-	//	GBContact c;
-	//	GBEdge outEdge;
-	//	float s, t;
-	//	if (GBEdge::closestEdgeBetween(capEdge, edge, outEdge, false, &s, &t))
-	//	{
-	//		if (pClosestOnEdge)
-	//		{
-	//			edge.isPointOnEdge(outEdge.b, pClosestOnEdge);
-	//		}
-	//		//drawEdge(GetWorld(), outEdge, 5, FColor::Red);
-	//		if (s <= 0.0f)
-	//		{
-	//			// Closest to lower sphere
-	//			if (GBManifoldGeneration::GBContactSphereEdge(lower, capsule.radius, edge, outContact))
-	//			{
-	//				return !capEdge.isPointOnEdge(outContact.position);
-	//			}
-	//		}
-	//		else if (s >= 1.0f)
-	//		{
-	//			//Closest to upper sphere
-	//			if (GBManifoldGeneration::GBContactSphereEdge(upper, capsule.radius, edge, outContact))
-	//			{
-	//				return !capEdge.isPointOnEdge(outContact.position);
-	//			}
-	//		}
-	//		else
-	//		{
-	//			// Closest point is on cylinder portion
-	//			GBVector3 capsulePoint = outEdge.a; // closest point on capsule axis
-	//			GBVector3 edgePoint = outEdge.b; // closest point on edge
-	//			GBVector3 offset = edgePoint - capsulePoint;
-	//			float distSqr = offset.lengthSquared();
-
-	//			GBVector3 clampedPoint;
-	//			if (!edge.isPointOnEdge(outEdge.b, &clampedPoint))
-	//			{
-	//				return GBContactCapsulePoint(capsule, clampedPoint, outContact);
-	//			}
-	//			else if (distSqr <= capsule.radius * capsule.radius)
-	//			{
-	//				float dist = sqrtf(distSqr);
-
-	//				//outContact.position = capsulePoint + offset * (capsule.radius / dist);
-	//				outContact.position = outEdge.b;
-	//				outContact.normal = -offset.normalized();  // flip normal so capsule is incident
-	//				outContact.penetrationDepth = GBAbs(capsule.radius - dist);
-
-	//				return true;
-	//			}
-	//		}
-	//	}
-	//	else
-	//	{
-	//		// parallel case: treat as cylinder-edge contact
-
-	//		GBVector3 capsuleMid = (upper + lower) * 0.5f;
-	//		GBVector3 edgePoint = edge.closestPointOnLine(capsuleMid);
-	//		GBVector3 axisPoint = capEdge.closestPointOnLine(edgePoint);
-
-	//		GBVector3 offset = axisPoint - edgePoint;
-	//		float dist2 = offset.lengthSquared();
-
-	//		if (dist2 <= capsule.radius * capsule.radius)
-	//		{
-	//			float dist = sqrtf(dist2);
-
-	//			outContact.position = edgePoint;
-	//			outContact.normal = offset.normalized();
-	//			outContact.penetrationDepth = capsule.radius - dist;
-	//			return true;
-	//		}
-
-	//	}
-
-	//	return false;
-	//}
 
 	static bool GBManifoldCapsuleCapsule(
 		const GBCapsuleCollider& reference,
@@ -976,7 +884,7 @@ struct GBManifoldGeneration
 					float dist = std::sqrt(distSq);
 					outContact.position = contact.position;
 					outContact.normal = normal; // Avoid division by zero
-					outContact.penetrationDepth = sphere.radius - dist;
+					outContact.distance = sphere.radius - dist;
 					outContact.pIncident = (GBCollider*)&sphere;
 					return true;
 				}
@@ -1039,7 +947,7 @@ struct GBManifoldGeneration
 
 					if (planeMan.numContacts > 0)
 					{
-						if (GBAbs(planeMan.contacts[0].penetrationDepth) < GBAbs(c.penetrationDepth))
+						if (GBAbs(planeMan.contacts[0].distance) < GBAbs(c.distance))
 							useEdge = true;
 					}
 				}
@@ -1066,7 +974,7 @@ struct GBManifoldGeneration
 
 
 		if (outManifold.numContacts > 0)
-			outManifold.separation = GBAbs(outManifold.contacts[0].penetrationDepth);
+			outManifold.separation = GBAbs(outManifold.contacts[0].distance);
 
 		return outManifold.numContacts > 0;
 	}
@@ -1121,7 +1029,7 @@ struct GBManifoldGeneration
 
 					if (planeMan.numContacts > 0)
 					{
-						if (GBAbs(planeMan.contacts[0].penetrationDepth) < GBAbs(c.penetrationDepth))
+						if (GBAbs(planeMan.contacts[0].distance) < GBAbs(c.distance))
 							useEdge = true;
 					}
 				}
@@ -1145,7 +1053,7 @@ struct GBManifoldGeneration
 		outManifold.correctPenetrations();
 
 		if (outManifold.numContacts > 0)
-			outManifold.separation = GBAbs(outManifold.contacts[0].penetrationDepth);
+			outManifold.separation = GBAbs(outManifold.contacts[0].distance);
 		outManifold.pIncident = capsule.pBody;
 
 		return outManifold.numContacts > 0;
@@ -1188,7 +1096,7 @@ struct GBManifoldGeneration
 					outManifold.contacts[0].normal *= -1.0f;
 				}
 				outManifold.useNormal(outManifold.contacts[0]);
-				outManifold.separation = GBAbs(outManifold.contacts[0].penetrationDepth);
+				outManifold.separation = GBAbs(outManifold.contacts[0].distance);
 				outManifold.pReference = box.pBody;
 				outManifold.pIncident = capsule.pBody;
 				outManifold.setContactColliders((GBCollider*)&capsule, (GBCollider*)&box);
@@ -1245,7 +1153,7 @@ struct GBManifoldGeneration
 			{
 				c.normal = (dist > 1e-6f) ? diff / dist : GBVector3::up();
 				c.position = sphere.transform.position - c.normal * sphere.radius;
-				c.penetrationDepth = r - dist;
+				c.distance = r - dist;
 
 				outManifold.addContact(c);
 				retValue = true;
@@ -1259,7 +1167,7 @@ struct GBManifoldGeneration
 				if (GBDot(sphere.transform.position - outManifold.contacts[0].position, outManifold.contacts[0].normal) > 0)
 					outManifold.contacts[0].normal *= -1.0f;
 				outManifold.useNormal(outManifold.contacts[0]);
-				outManifold.separation = GBAbs(outManifold.contacts[0].penetrationDepth);
+				outManifold.separation = GBAbs(outManifold.contacts[0].distance);
 			}
 			if (capsule.pBody)
 				outManifold.pIncident = capsule.pBody;
@@ -1293,7 +1201,7 @@ struct GBManifoldGeneration
 					float dist = std::sqrt(distSq);
 					outContact.position = contact.position;
 					outContact.normal = normal; // Avoid division by zero
-					outContact.penetrationDepth = sphere.radius - dist;
+					outContact.distance = sphere.radius - dist;
 					outContact.pIncident = (GBCollider*)&sphere;
 					return true;
 				}
@@ -1332,7 +1240,7 @@ struct GBManifoldGeneration
 		outContact.normal = normal;
 		outContact.position =
 			a.transform.position + normal * a.radius;
-		outContact.penetrationDepth = r - dist;
+		outContact.distance = r - dist;
 
 		return true;
 	}
@@ -1349,7 +1257,7 @@ struct GBManifoldGeneration
 			outManifold.pReference = a.pBody;
 			outManifold.pIncident = b.pBody;
 			outManifold.setContactColliders((GBCollider*)&a, (GBCollider*)&b);
-			outManifold.separation = c.penetrationDepth;
+			outManifold.separation = c.distance;
 			outManifold.normal = c.normal;
 			return true;
 		}
@@ -1392,7 +1300,7 @@ struct GBManifoldGeneration
 					outContact.normal = GBVector3(1, 0, 0);
 					dir = GBCardinal::PosX;
 				}
-				outContact.penetrationDepth = penetrationX;
+				outContact.distance = penetrationX;
 			}
 			else if (penetrationY < penetrationZ)
 			{
@@ -1406,7 +1314,7 @@ struct GBManifoldGeneration
 					outContact.normal = GBVector3(0, 1, 0);
 					dir = GBCardinal::PosY;
 				}
-				outContact.penetrationDepth = penetrationY;
+				outContact.distance = penetrationY;
 			}
 			else
 			{
@@ -1420,7 +1328,7 @@ struct GBManifoldGeneration
 					outContact.normal = GBVector3(0, 0, 1);
 					dir = GBCardinal::PosZ;
 				}
-				outContact.penetrationDepth = penetrationZ;
+				outContact.distance = penetrationZ;
 			}
 			switch (dir)
 			{
@@ -1503,7 +1411,7 @@ struct GBManifoldGeneration
 			outManifold.pReference = box.pBody;
 			outManifold.pIncident = sphere.pBody;
 			outManifold.setContactColliders((GBCollider*)&sphere, (GBCollider*)&box);
-			outManifold.separation = c.penetrationDepth;
+			outManifold.separation = c.distance;
 			outManifold.normal = c.normal;
 			return true;
 		}
@@ -1520,7 +1428,7 @@ struct GBManifoldGeneration
 		{
 			outManifold.addContact(c);
 			outManifold.pIncident = sphere.pBody;
-			outManifold.separation = c.penetrationDepth;
+			outManifold.separation = c.distance;
 			outManifold.normal = c.normal;
 			return true;
 		}
@@ -1540,13 +1448,13 @@ struct GBManifoldGeneration
 			up = GBNormalize(GBCross(right, testManifold.normal));
 			outManifold.useNormal(testManifold);
 			outManifold.addContact(GBContact(testManifold.contacts[0].position + testManifold.separation*right + testManifold.separation*up, testManifold.contacts[0].normal, 
-				testManifold.contacts[0].penetrationDepth));
+				testManifold.contacts[0].distance));
 			outManifold.addContact(GBContact(testManifold.contacts[0].position - testManifold.separation * right + testManifold.separation * up, testManifold.contacts[0].normal,
-				testManifold.contacts[0].penetrationDepth));
+				testManifold.contacts[0].distance));
 			outManifold.addContact(GBContact(testManifold.contacts[0].position - testManifold.separation * right - testManifold.separation * up, testManifold.contacts[0].normal,
-				testManifold.contacts[0].penetrationDepth));
+				testManifold.contacts[0].distance));
 			outManifold.addContact(GBContact(testManifold.contacts[0].position + testManifold.separation * right - testManifold.separation * up, testManifold.contacts[0].normal,
-				testManifold.contacts[0].penetrationDepth));
+				testManifold.contacts[0].distance));
 
 			return true;
 		}
@@ -1562,7 +1470,7 @@ struct GBManifoldGeneration
 		GBPlane plane = triangle.toPlane();
 		if (GBRaycastPlane(plane, vertex, triangleNormal, contact))
 		{
-			if (contact.penetrationDepth > 0.0f && triangle.PointInTriangle(contact.position))
+			if (contact.distance > 0.0f && triangle.PointInTriangle(contact.position))
 			{
 				contact.normal = triangleNormal;
 				return true;
@@ -1617,7 +1525,7 @@ struct GBManifoldGeneration
 
 		contact.position = projected;
 		contact.normal = normal;
-		contact.penetrationDepth = -distance; // optional, depends on usage
+		contact.distance = -distance; // optional, depends on usage
 
 		return true;
 	}
@@ -1692,7 +1600,7 @@ struct GBManifoldGeneration
 				continue;
 
 			contact.normal = faceNormal;
-			contact.penetrationDepth = separation;
+			contact.distance = separation;
 
 			outManifold.addContact(contact);
 		}
@@ -1744,8 +1652,8 @@ struct GBManifoldGeneration
 				continue;
 
 			contact.normal = faceNormal;
-			contact.penetrationDepth = separation;
-			contact.position -= contact.normal * contact.penetrationDepth;
+			contact.distance = separation;
+			contact.position -= contact.normal * contact.distance;
 
 			outManifold.addContact(contact);
 		}
@@ -1789,7 +1697,7 @@ struct GBManifoldGeneration
 				continue;
 
 			contact.normal = triangleNormal;
-			contact.penetrationDepth = separation;
+			contact.distance = separation;
 
 
 			outManifold.addContact(contact);
@@ -1797,64 +1705,6 @@ struct GBManifoldGeneration
 
 		return outManifold.numContacts > 0;
 	}
-
-
-	//static bool GBManifoldClipAABBOnTriangleVerts(
-	//	const GBTriangle& triangle,
-	//	const GBAABB& aabb,
-	//	GBCardinal face,
-	//	GBManifold& outManifold)
-	//{
-	//	GBVector3 faceNormal = triangle.normal;
-	//	if (GBDot(aabb.center - triangle.vertices[0], faceNormal) < 0.0f)
-	//	{
-	//		faceNormal *= -1.0f;
-	//	}
-
-	//	// Face plane point (center of the face)
-	//	GBVector3 planePoint = aabb.center;
-	//	switch (face)
-	//	{
-	//	case GBCardinal::PosX: planePoint.x += aabb.halfExtents.x; break;
-	//	case GBCardinal::NegX: planePoint.x -= aabb.halfExtents.x; break;
-	//	case GBCardinal::PosY: planePoint.y += aabb.halfExtents.y; break;
-	//	case GBCardinal::NegY: planePoint.y -= aabb.halfExtents.y; break;
-	//	case GBCardinal::PosZ: planePoint.z += aabb.halfExtents.z; break;
-	//	case GBCardinal::NegZ: planePoint.z -= aabb.halfExtents.z; break;
-	//	}
-
-	//	// Build plane once
-	//	GBPlane facePlane(faceNormal, triangle.vertices[0]);
-
-	//	GBVector3 boxVerts[4];
-	//	aabb.extractVerts(boxVerts);
-
-	//	for (int i = 0; i < 3; i++)
-	//	{
-	//		GBContact contact;
-
-	//		// Clip quad vertex to AABB face
-	//		if (!GBContactClipVertexToFace(triangle.vertices[i], aabb, face, contact))
-	//			continue;
-
-	//		// Compute penetration depth
-	//		float separation = GBDot(
-	//			planePoint - triangle.vertices[i],
-	//			faceNormal
-	//		);
-
-	//		// Reject if vertex is not penetrating
-	//		if (separation < 0.0f)
-	//			continue;
-
-	//		contact.normal = faceNormal;
-	//		contact.penetrationDepth = separation;
-
-	//		outManifold.addContact(contact);
-	//	}
-
-	//	return outManifold.numContacts > 0;
-	//}
 
 	static bool GBContactClipEdge(
 		const GBEdge& edge,
@@ -1870,11 +1720,11 @@ struct GBManifoldGeneration
 		dir *= (1.0f / len);
 		if (GBRaycastPlane(edgePlane, edge.a, dir, outContact))
 		{
-			if (aabb.isPointOnPlane(outContact.position, edgeDir) && outContact.penetrationDepth <= len)
+			if (aabb.isPointOnPlane(outContact.position, edgeDir) && outContact.distance <= len)
 			{
 				// We have a hit
 				GBVector3 adjustedPosition = aabb.forcePointOntoFacePlane(outContact.position, referencePlaneDir);
-				outContact.penetrationDepth = (outContact.position - adjustedPosition).length();
+				outContact.distance = (outContact.position - adjustedPosition).length();
 				outContact.normal = GBCardinalToVector3(referencePlaneDir);
 				outContact.position = adjustedPosition;
 				return true;
@@ -2263,7 +2113,7 @@ struct GBManifoldGeneration
 					if (depth > GBEpsilon) 
 					{ 
 						contact.normal = normal; 
-						contact.penetrationDepth = depth; 
+						contact.distance = depth;
 						outManifold.addContact(contact); 
 					}
 				}
@@ -2298,7 +2148,7 @@ struct GBManifoldGeneration
 					if (depth > GBEpsilon)
 					{
 						contact.normal = normal;
-						contact.penetrationDepth = depth;
+						contact.distance = depth;
 						outManifold.addContact(contact);
 					}
 				}
@@ -2623,7 +2473,7 @@ struct GBManifoldGeneration
 			if(edgeManifold.separation > outManifold.separation)
 				outManifold.normal = colData.bestAxis;
 			outManifold.combine(edgeManifold);
-			outManifold.separation = GBMin(outManifold.contacts[0].penetrationDepth, outManifold.separation);
+			outManifold.separation = GBMin(outManifold.contacts[0].distance, outManifold.separation);
 		}
 
 		
@@ -2652,10 +2502,10 @@ struct GBManifoldGeneration
 			case ColliderType::Box:
 				if (GBRaycastOBB(*(GBBoxCollider*)pCollider, rayOrigin, rayDir, temp))
 				{
-					if (temp.penetrationDepth < minDist)
+					if (temp.distance < minDist)
 					{
 						closestContact = temp;
-						minDist = temp.penetrationDepth;
+						minDist = temp.distance;
 						pHitCollider = pCollider;
 					}
 				}
@@ -2663,10 +2513,10 @@ struct GBManifoldGeneration
 			case ColliderType::Sphere:
 				if (GBRaycastSphere(*(GBSphereCollider*)pCollider, rayOrigin, rayDir, temp))
 				{
-					if (temp.penetrationDepth < minDist)
+					if (temp.distance < minDist)
 					{
 						closestContact = temp;
-						minDist = temp.penetrationDepth;
+						minDist = temp.distance;
 						pHitCollider = pCollider;
 					}
 				}
@@ -2674,11 +2524,85 @@ struct GBManifoldGeneration
 			case ColliderType::Capsule:
 				if (GBRaycastCapsule(*(GBCapsuleCollider*)pCollider, rayOrigin, rayDir, temp))
 				{
-					if (temp.penetrationDepth < minDist)
+					if (temp.distance < minDist)
 					{
 						closestContact = temp;
-						minDist = temp.penetrationDepth;
+						minDist = temp.distance;
 						pHitCollider = pCollider;
+					}
+				}
+				break;
+			}
+		}
+
+		if (minDist != FLT_MAX)
+		{
+			outContact = closestContact;
+			if (pHitCollider)
+				outContact.pIncident = pHitCollider;
+			return true;
+		}
+
+		return false;
+	}
+
+	static bool GBSpherecastColliderVector(
+		const GBVector3& spherePos,
+		const float radius,
+		GBVector3 rayDir,
+		const std::vector<GBCollider*>& colliders,
+		GBContact& outContact,
+		GBVector3* castEndpoint = nullptr,
+		unsigned int mask = 0xFFFFFFFF
+	)
+	{
+		float minDist = FLT_MAX;
+		GBContact closestContact;
+		GBContact temp;
+		GBCollider* pHitCollider = nullptr;
+		GBVector3 tempEndpoint;
+		for (GBCollider* pCollider : colliders)
+		{
+			if (!pCollider->pBody->isOnLayer(mask))
+				continue;
+			switch (pCollider->type)
+			{
+			case ColliderType::Box:
+				if (GBSphereCastBox(spherePos, radius, rayDir, *(GBBoxCollider*)pCollider, temp, &tempEndpoint))
+				{
+					if (temp.distance < minDist)
+					{
+						closestContact = temp;
+						minDist = temp.distance;
+						pHitCollider = pCollider;
+						if (castEndpoint)
+							*castEndpoint = tempEndpoint;
+					}
+				}
+				break;
+			case ColliderType::Sphere:
+				if (GBSphereCastSphere(spherePos, radius, rayDir, *(GBSphereCollider*)pCollider, temp, &tempEndpoint))
+				{
+					if (temp.distance < minDist)
+					{
+						closestContact = temp;
+						minDist = temp.distance;
+						pHitCollider = pCollider;
+						if (castEndpoint)
+							*castEndpoint = tempEndpoint;
+					}
+				}
+				break;
+			case ColliderType::Capsule:
+				if (GBSphereCastCapsule(spherePos, radius, rayDir, *(GBCapsuleCollider*)pCollider, temp, &tempEndpoint))
+				{
+					if (temp.distance < minDist)
+					{
+						closestContact = temp;
+						minDist = temp.distance;
+						pHitCollider = pCollider;
+						if (castEndpoint)
+							*castEndpoint = tempEndpoint;
 					}
 				}
 				break;
@@ -2711,10 +2635,10 @@ struct GBManifoldGeneration
 		{
 			if (pBody->isOnLayer(mask) && GBRaycastColliderVector(rayOrigin, rayDir, pBody->colliders, temp))
 			{
-				if (temp.penetrationDepth < minDist)
+				if (temp.distance < minDist)
 				{
 					closestContact = temp;
-					minDist = temp.penetrationDepth;
+					minDist = temp.distance;
 				}
 			}
 		}
@@ -2749,10 +2673,10 @@ struct GBManifoldGeneration
 				{
 					if (GBRaycastTriangle(*(GBTriangle*)shape, rayOrigin, rayDir, temp))
 					{
-						if (temp.penetrationDepth < minDist)
+						if (temp.distance < minDist)
 						{
 							closestContact = temp;
-							minDist = temp.penetrationDepth;
+							minDist = temp.distance;
 						}
 					}
 				}
@@ -2769,4 +2693,50 @@ struct GBManifoldGeneration
 		return false;
 	}
 
+
+	static bool GBSpherecastStaticGeometryVector(
+		const GBVector3& spherePos,
+		const float radius,
+		GBVector3 rayDir,
+		const std::vector<GBStaticGeometry*>& shapes,
+		GBContact& outContact,
+		GBVector3* castEndpoint = nullptr,
+		unsigned int mask = 0xFFFFFFFF
+	)
+	{
+		float minDist = FLT_MAX;
+		GBContact closestContact;
+		GBContact temp;
+		GBVector3 tempEndpoint;
+		for (GBStaticGeometry* shape : shapes)
+		{
+			if (shape->isOnLayer(mask))
+			{
+				switch (shape->type)
+				{
+				case::GBStaticGeometryType::TRIANGLE:
+				{
+					if (GBSphereCastTriangle(spherePos, radius, rayDir, *(GBTriangle*)shape, temp, &tempEndpoint))
+					{
+						if (temp.distance < minDist)
+						{
+							closestContact = temp;
+							minDist = temp.distance;
+							if (castEndpoint)
+								*castEndpoint = tempEndpoint;
+						}
+					}
+				}
+				}
+			}
+		}
+
+		if (minDist != FLT_MAX)
+		{
+			outContact = closestContact;
+			return true;
+		}
+
+		return false;
+	}
 };

@@ -482,11 +482,11 @@ struct GBGrid
 						test,
 						mask))
 					{
-						if (test.penetrationDepth < closestT)
+						if (test.distance < closestT)
 						{
 							didHit = true;
 							outContact = test;
-							closestT = test.penetrationDepth;
+							closestT = test.distance;
 						}
 					}
 				}
@@ -499,11 +499,11 @@ struct GBGrid
 					if (GBManifoldGeneration::GBRaycastStaticGeometryVector(rayOrigin, dir, cell.staticGeometry,
 						test, mask))
 					{
-						if (test.penetrationDepth < closestT)
+						if (test.distance < closestT)
 						{
 							didHit = true;
 							outContact = test;
-							closestT = test.penetrationDepth;
+							closestT = test.distance;
 						}
 					}
 				}
@@ -1062,11 +1062,11 @@ struct GBGridMap
 				GBContact test;
 				if (grid.raycast(rayOrigin, rayDir, test, maxDistance, mask))
 				{
-					if (test.penetrationDepth < closestT)
+					if (test.distance < closestT)
 					{
 						didHit = true;
 						outContact = test;
-						closestT = test.penetrationDepth;
+						closestT = test.distance;
 					}
 				}
 
@@ -1086,11 +1086,11 @@ struct GBGridMap
 							maxDistance,
 							mask))
 						{
-							if (terrainTest.penetrationDepth < closestT)
+							if (terrainTest.distance < closestT)
 							{
 								didHit = true;
 								outContact = terrainTest;
-								closestT = terrainTest.penetrationDepth;
+								closestT = terrainTest.distance;
 							}
 						}
 					}
