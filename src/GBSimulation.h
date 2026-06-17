@@ -35,10 +35,30 @@ struct GBSpringJoint
 
 	float restLength = 0.0f;
 
-	float stiffness = 200.0f;   // k
+	float stiffness = 300.0f;   // k
 	float damping = 20.0f;      // c
 
 	GBSpringJoint(GBBody* A, GBBody* B, GBVector3 worldLocalA) :
+		A(A), B(B)
+	{
+		localAnchorA = A->transform.inverse().transformDirection(worldLocalA);
+		GBVector3 relPos = B->transform.position - A->transform.position;
+		localAnchorB = B->transform.inverse().transformDirection(worldLocalA - relPos);
+	}
+
+	GBVector3 accumulatedImpulse; // optional warm starting
+};
+
+struct GBBallJoint
+{
+	GBBody* A = nullptr;
+	GBBody* B = nullptr;
+
+	GBVector3 localAnchorA;
+	GBVector3 localAnchorB;
+
+
+	GBBallJoint(GBBody* A, GBBody* B, GBVector3 worldLocalA) :
 		A(A), B(B)
 	{
 		localAnchorA = A->transform.inverse().transformDirection(worldLocalA);
@@ -58,6 +78,7 @@ struct GBSimulation
 	std::vector<std::unique_ptr<GBBoxCollider>> boxColliders;
 	std::vector<std::unique_ptr<GBCapsuleCollider>> capsuleColliders;
 	std::vector<std::unique_ptr<GBSpringJoint>> springJoints;
+	std::vector<std::unique_ptr<GBBallJoint>> ballJoints;
 	std::vector<std::unique_ptr<GBBody>> rigidBodies;
 	std::vector<std::unique_ptr<GBCloth>> cloths;
 	std::vector< std::unique_ptr<GBTriangle>> triangles;
@@ -393,7 +414,19 @@ struct GBSimulation
 	GBSpringJoint* createSpringJoint(GBBody* a, GBBody* b, GBVector3 localA)
 	{
 		springJoints.push_back(std::make_unique<GBSpringJoint>(a, b, localA));
-		return springJoints.back().get();
+		GBSpringJoint* pSpring = springJoints.back().get();
+		BodyPair pair(a, b);
+		pairSprings[pair] = pSpring;
+		return pSpring;
+	}
+
+	GBBallJoint* createBallJoint(GBBody* a, GBBody* b, GBVector3 localA)
+	{
+		ballJoints.push_back(std::make_unique<GBBallJoint>(a, b, localA));
+		GBBallJoint* pBall = ballJoints.back().get();
+		BodyPair pair(a, b);
+		pairBalls[pair] = pBall;
+		return pBall;
 	}
 
 	GBBoxCollider* attachBoxCollider(GBBody* pBody, GBVector3 halfExtents, GBTransform localTransform = GBTransform(), bool insertToGrid = true)
@@ -883,7 +916,12 @@ struct GBSimulation
 		GBVector3 rB = pb - B.transform.position;
 
 		GBVector3 vA = A.velocity + GBCross(A.angularVelocity, rA);
+		if (!A.isMovable())
+			vA = GBVector3();
+
 		GBVector3 vB = B.velocity + GBCross(B.angularVelocity, rB);
+		if (!B.isMovable())
+			vB = GBVector3();
 
 		GBVector3 relVel = vB - vA;
 
@@ -941,6 +979,79 @@ struct GBSimulation
 				B.invInertia * GBCross(rB, impulse);
 		}
 
+	}
+
+	void solveBallJoint(GBBallJoint& j, float dt)
+	{
+		GBBody& A = *j.A;
+		GBBody& B = *j.B;
+
+		// If both are static, nothing to solve
+		if (!A.isMovable() && !B.isMovable())
+			return;
+
+		// 1. World anchor positions
+		GBVector3 pa = A.transform.localToWorldPoint(j.localAnchorA);
+		GBVector3 pb = B.transform.localToWorldPoint(j.localAnchorB);
+
+		// 2. Constraint error (we want this to be zero)
+		GBVector3 error = pa - pb;
+
+		float errorLen = error.length();
+		if (errorLen < 1e-6f)
+			return;
+
+		// 3. Inverse masses
+		float wA = A.invMass;
+		float wB = B.invMass;
+
+		float wSum = wA + wB;
+		if (wSum == 0.0f)
+			return;
+
+		// 4. Position correction (split by mass)
+		GBVector3 correction = error / wSum;
+
+		if (A.isMovable())
+			A.transform.position -= correction * wA;
+
+		if (B.isMovable())
+			B.transform.position += correction * wB;
+
+		// 5. Angular correction (important for rigid behavior)
+
+		GBVector3 rA = pa - A.transform.position;
+		GBVector3 rB = pb - B.transform.position;
+
+		GBVector3 angCorrA = A.invInertia * GBCross(rA, correction);
+		GBVector3 angCorrB = B.invInertia * GBCross(rB, correction);
+
+		if (A.isMovable())
+			A.angularVelocity -= angCorrA;
+
+		if (B.isMovable())
+			B.angularVelocity += angCorrB;
+
+		// 6. Optional velocity damping (stability + removes jitter)
+
+		GBVector3 vA = A.velocity + GBCross(A.angularVelocity, rA);
+		GBVector3 vB = B.velocity + GBCross(B.angularVelocity, rB);
+
+		GBVector3 relVel = vA - vB;
+
+		float damping = 0.2f; // tune 0.1 - 0.4
+
+		GBVector3 dampImpulse = relVel * damping;
+
+		if (A.isMovable())
+		{
+			A.velocity -= dampImpulse * A.invMass;
+		}
+
+		if (B.isMovable())
+		{
+			B.velocity += dampImpulse * B.invMass;
+		}
 	}
 
 	bool overlapTest(GBCollider* colA, GBCollider* colB, GBSATCollisionData& outData, GBManifold& outManifold)
@@ -1441,6 +1552,8 @@ struct GBSimulation
 	float ellapsedTime = 0.0f;
 	int integerTime = 0;
 	std::unordered_map<ColliderPair, GBManifold, ColliderPairHash> pairManifolds;
+	std::unordered_map<BodyPair, GBSpringJoint*, BodyPairHash> pairSprings;
+	std::unordered_map<BodyPair, GBBallJoint*, BodyPairHash> pairBalls;
 	std::vector<GBManifold> manifoldStack;
 
 
@@ -1465,7 +1578,7 @@ struct GBSimulation
 		{
 			GBBody* body = rb.get();
 
-			if(!body->isSleeping)
+			if (!body->isSleeping)
 				body->frameManifold.clear();
 
 			body->prevFrameVelocity = body->velocity;
@@ -1512,7 +1625,6 @@ struct GBSimulation
 			}
 
 
-
 			//*****************************************************************************************************
 			//*****************************************************************************************************
 			//*****************************************************************************************************
@@ -1531,9 +1643,24 @@ struct GBSimulation
 				solveSpringJoint(*pSpring, interDeltaTime);
 			}
 
+			//*****************************************************************************************************
+			//*****************************************************************************************************
+			//*****************************************************************************************************
+			//*****************************************************************************************************
+			// BALL JOINT SOLVER
+			//*****************************************************************************************************
+			//*****************************************************************************************************
+			//*****************************************************************************************************
+			//*****************************************************************************************************
+			for (auto& ballIt : ballJoints)
+			{
+				// Not much to do here but run the solver, has to go first so penetration solvers 
+				// Correct any interpenetration
 
-			std::vector<GBBody*> sortedBodies = sortBodiesByHeight(rigidBodies);
-			std::unordered_set<ColliderPair, ColliderPairHash> dynamicPairs;
+				GBBallJoint* pBall = ballIt.get();
+				solveBallJoint(*pBall, interDeltaTime);
+			}
+
 			//*****************************************************************************************************
 			//*****************************************************************************************************
 			//*****************************************************************************************************
@@ -1543,6 +1670,8 @@ struct GBSimulation
 			//*****************************************************************************************************
 			//*****************************************************************************************************
 			//*****************************************************************************************************
+			std::vector<GBBody*> sortedBodies = sortBodiesByHeight(rigidBodies);
+			std::unordered_set<ColliderPair, ColliderPairHash> dynamicPairs;
 			for (int i = 0; i < sortedBodies.size(); i++)
 			{
 				GBBody* bodyA = sortedBodies[i];
@@ -1559,6 +1688,8 @@ struct GBSimulation
 						GBBody* bodyB = colB->pBody;
 						if (bodyA == bodyB || !bodyA->sharesLayer(*bodyB))
 							continue;
+
+						BodyPair bodyPair(bodyA, bodyB);
 
 						ColliderPair pair(colA, colB);
 						if (!dynamicPairs.insert(pair).second)
@@ -1583,12 +1714,18 @@ struct GBSimulation
 
 								manifold.flipAndSwapIfContactOnTop(manifold.normal);
 
-								GBContact c;
-								float upness = manifold.maxUpContact(c);
-								if (upness > 0.0f)
-									solveDynamicPenetration(manifold);
-								else
-									solveDynamicPenetrationEqually(manifold);
+								auto it = pairSprings.find(bodyPair);
+								if (it != pairSprings.end())
+								{
+									GBSpringJoint* pSpring = it->second;
+
+									if (pSpring->A == manifold.pReference)
+									{
+										manifold.flipAndSwap();
+									}
+								}
+
+								solveDynamicPenetration(manifold);
 
 								solveDynamicManifold(manifold, *manifold.pIncident, *manifold.pReference, interDeltaTime, !manifold.pIncident->isKinematic);
 
@@ -1645,6 +1782,8 @@ struct GBSimulation
 						if (bodyA == bodyB || !bodyA->sharesLayer(*bodyB))
 							continue;
 
+						BodyPair bodyPair(bodyA, bodyB);
+
 						ColliderPair pair(colA, colB);
 						if (!staticPairs.insert(pair).second)
 							continue; // already processed this pair
@@ -1674,6 +1813,17 @@ struct GBSimulation
 
 
 									manifold.flipAndSwapIfContactOnTop(manifold.normal);
+
+									auto it = pairSprings.find(bodyPair);
+									if (it != pairSprings.end())
+									{
+										GBSpringJoint* pSpring = it->second;
+
+										if (pSpring->A == manifold.pReference)
+										{
+											manifold.flipAndSwap();
+										}
+									}
 
 									solveDynamicPenetration(manifold);
 
@@ -1727,41 +1877,48 @@ struct GBSimulation
 					bool isSphere = bodyIsPureColliderType(*body, ColliderType::Sphere);
 					bool isCapsule = bodyIsPureColliderType(*body, ColliderType::Capsule);
 
-					float defaultDamping = 0.9998f;
-
 					if ((isSphere || isCapsule || body->frameManifold.numContacts > 2)
-						&& body->awakeTimer >  sleepTime*sleepDampingRatio)
+						&& body->awakeTimer > sleepTime * sleepDampingRatio)
 					{
 						int cappedContacts = body->frameManifold.numContacts > GBManifold::manifoldContactClamp ? GBManifold::manifoldContactClamp : body->frameManifold.numContacts;
 
 						GBContact contact;
+						float upness = 1.0f - GBMax(0.0f, body->frameManifold.maxUpContact(contact));
+						float damping = (0.999f - 0.01 * cappedContacts) * upness;
+
 						float t = 1.0f - exp(-0.8f * cappedContacts);
-						float damping = GBLerp(defaultDamping, 0.965f,t);
-						float verticleDampFactor = GBLerp(0.995f, 0.965, t);
-						float velz = body->velocity.z * verticleDampFactor;
-						
+						damping = GBLerp(0.9998f, 0.965f, t);
+						float verticleDampFactor = GBLerp(0.995f, 0.985, t);
+
 						GBVector3 velxy = body->velocity.xyComponent();
+						velxy *= damping;
+						float velz = body->velocity.z;
+						velz *= verticleDampFactor * upness;
 
 						if (isSphere || isCapsule)
 						{
-							body->velocity *= defaultDamping;
-							body->angularVelocity *= defaultDamping;
+							body->velocity = GBVector3(body->velocity.x, body->velocity.y, velz);
 						}
 						else
 						{
 							body->velocity = GBVector3(velxy.x, velxy.y, velz);
-							body->angularVelocity *= defaultDamping;
+							body->angularVelocity *= damping;
 						}
 					}
 					else
 					{
-						body->velocity *= defaultDamping;
-						body->angularVelocity *= defaultDamping;
+						float damping = 0.998f;
+
+						if (isSphere || isCapsule)
+							damping = 0.99998f;
+
+						body->velocity *= damping;
+						body->angularVelocity *= damping;
 					}
 				}
 
 
-				if (!body->isKinematic && speed <  sleepThreshold 
+				if (!body->isKinematic && speed < sleepThreshold
 					&& angSpeed < sleepThreshold)
 				{
 					body->sleepTimer += interDeltaTime;
@@ -1774,12 +1931,11 @@ struct GBSimulation
 						body->angularVelocity = GBVector3::zero();
 					}
 				}
-				else if(speed > wakeThreshold && angSpeed > wakeThreshold)
+				else if (speed > wakeThreshold && angSpeed > wakeThreshold)
 				{
-					if(body->isSleeping)
-						body->wakeIsland();
+					body->wakeIsland();
 				}
-				
+
 			}
 			frame++;
 		}
@@ -1802,7 +1958,7 @@ struct GBSimulation
 
 		for (auto& [pair, manifold] : pairManifolds)
 		{
-			if (curPairManifolds.find(pair)==curPairManifolds.end())
+			if (curPairManifolds.find(pair) == curPairManifolds.end())
 			{
 				dispatchExitListeners(pair.a->pBody->id, pair.b->pBody);
 				dispatchExitListeners(pair.b->pBody->id, pair.a->pBody);
@@ -1816,7 +1972,7 @@ struct GBSimulation
 
 		pairManifolds = curPairManifolds;
 		curPairManifolds.clear();
-		
+
 
 		for (auto& rb : rigidBodies)
 		{
@@ -1856,7 +2012,7 @@ struct GBSimulation
 	std::vector<GBManifold> generateBodiesManifolds(std::vector<GBBody*> bodies, BroadPhaseType sampleType = BroadPhaseType::NONE)
 	{
 		std::vector<GBManifold> generatedManifolds;
-		for (GBBody* bodyA: bodies)
+		for (GBBody* bodyA : bodies)
 		{
 			for (int k = 0; k < bodyA->colliders.size(); k++)
 			{
@@ -1960,7 +2116,7 @@ struct GBSimulation
 				upNormal * adjustedSeparation * percent;
 		}
 
-		if (manifold.pReference && manifold.pReference->isAwake() && manifold.pReference->isMovable())
+		if (manifold.pReference && manifold.pReference->isAwake())
 		{
 
 			manifold.pIncident->transform.position +=
@@ -1980,7 +2136,7 @@ struct GBSimulation
 	{
 		bool iDynamic = manifold.pIncident && manifold.pIncident->isMovable() ? true : false;
 		bool rDynamic = manifold.pReference && manifold.pReference->isMovable() ? true : false;
-		float adjustedSeparation = GBMin(manifold.separation*(1.0f- slop), maxPenetration);
+		float adjustedSeparation = GBMin(manifold.separation * (1.0f - slop), maxPenetration);
 		if (iDynamic && rDynamic)
 		{
 			manifold.pReference->transform.position -= adjustedSeparation * manifold.normal * 0.5f;

@@ -302,7 +302,15 @@ struct GBManifold
 	{
 		normal = -normal;
 		for (int i = 0; i < numContacts; i++)
+		{
 			contacts[i].normal = -contacts[i].normal;
+			if (contacts[i].pIncident->pBody == pReference)
+			{
+				GBCollider* pTemp = contacts[i].pIncident;
+				contacts[i].pIncident = contacts[i].pReference;
+				contacts[i].pReference = pTemp;
+			}
+		}
 	}
 
 	void flipAndSwap()
@@ -539,67 +547,6 @@ enum Layers : uint32_t {
 	LAYER_STATIC_DYNAMIC_SPHERE = LAYER_STATIC | LAYER_DYNAMIC_SPHERE,
 };
 
-
-struct GBJointConstraint
-{
-	GBCollider* A;
-	GBCollider* B;
-
-	GBVector3 localA;
-	GBVector3 localB;
-
-	float bias = 0.1f;        // positional correction strength
-	float softness = 0.0f;    // optional (springiness)
-
-	GBJointConstraint(GBCollider* a, GBCollider* b,
-		GBVector3 anchorA_world,
-		GBVector3 anchorB_world)
-	{
-		A = a;
-		B = b;
-
-		localA = A->transform.worldToLocalPoint(anchorA_world);
-		localB = B->transform.worldToLocalPoint(anchorB_world);
-	}
-
-	GBJointConstraint(GBCollider* a, GBCollider* b, GBVector3 worldPoint)
-	{
-		A = a;
-		B = b;
-
-		localA = A->transform.worldToLocalPoint(worldPoint);
-		localB = B->transform.worldToLocalPoint(worldPoint);
-	}
-
-	GBManifold buildBallJointManifold()
-	{
-		GBManifold m;
-
-		GBVector3 pA = A->transform.localToWorldPoint(localA);
-		GBVector3 pB = B->transform.localToWorldPoint(localB);
-
-		GBVector3 delta = pB - pA;
-		float len2 = delta.lengthSquared();
-
-		if (len2 < 1e-12f)
-			return m; // no correction needed
-
-		GBVector3 n = delta / sqrt(len2);
-
-		// Use one anchor (better torque fidelity than midpoint)
-		GBVector3 contactPoint = pA;
-
-		m.addContact(GBContact(contactPoint, n, 0.0f));
-
-		m.pIncident = A->pBody;
-		m.pReference = B->pBody;
-
-		m.isJoint = true;
-
-		return m;
-	}
-};
-
 struct GBBody
 {
 	// WORLD transform of the body
@@ -659,6 +606,7 @@ struct GBBody
 	void* pData = (void*)nullptr;
 
 	GBManifold frameManifold;
+	bool doTestSupports = false;
 
 	bool isGrounded = false;
 
@@ -674,7 +622,6 @@ struct GBBody
 	bool ignoreKinematicVelocityClamp = false;
 	bool useGravity = true;
 
-	std::vector<GBJointConstraint> joints;
 
 	bool sharesLayer(const GBBody& other)
 	{
