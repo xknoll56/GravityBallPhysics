@@ -64,8 +64,8 @@ struct GBHit {
 	GBVector3 position;
 	GBVector3 normal; // From collider A to B
 	float distance;
-	GBCollider* pReference;
-	GBCollider* pIncident;
+	GBCollider* pReference = nullptr;
+	GBCollider* pIncident = nullptr;
 	GBHit()
 		: position(0, 0, 0), normal(0, 0, 0), distance(0), pReference(nullptr), pIncident(nullptr)
 	{
@@ -130,6 +130,8 @@ struct GBManifold
 	bool isJoint = false;
 	const static int manifoldContactClamp = 4;
 	GBSATCollisionData data;
+	GBCardinal incidentFace = GBCardinal::None;
+	GBCardinal referemceFace = GBCardinal::None;
 
 	GBManifold()
 	{
@@ -231,6 +233,23 @@ struct GBManifold
 		}
 	}
 
+	int countColliders(const GBBody& self) const
+	{
+		if (numContacts > 0)
+		{
+			std::unordered_set<GBCollider*> cols;
+			for (int i = 0; i < numContacts; i++)
+			{
+				if (contacts[i].pIncident && contacts[i].pIncident->pBody  == &self)
+					cols.insert(contacts[i].pIncident);
+				if (contacts[i].pReference && contacts[i].pReference->pBody == &self)
+					cols.insert(contacts[i].pReference);
+			}
+			return (int)GBMax(1, cols.size() - 1);
+		}
+		return 1;
+	}
+
 	void addContactSortedUnique(const GBContact& contact, float epsilon = GBEpsilon)
 	{
 		// Reject duplicates
@@ -283,6 +302,24 @@ struct GBManifold
 				contacts[i].pReference->pBody == body) ||
 				(contacts[i].pIncident &&
 					contacts[i].pIncident->pBody == body))
+			{
+				removeContact(i);
+				i--;
+				contactRemoved = true;
+			}
+		}
+		return contactRemoved;
+	}
+
+	bool removeCollidersContact(const GBCollider* pCol)
+	{
+		bool contactRemoved = false;
+		for (int i = 0; i < numContacts; i++)
+		{
+			if ((contacts[i].pReference &&
+				contacts[i].pReference == pCol) ||
+				(contacts[i].pIncident &&
+					contacts[i].pIncident == pCol))
 			{
 				removeContact(i);
 				i--;
@@ -432,10 +469,12 @@ struct GBManifold
 	{
 		for (int i = 0; i < numContacts; i++)
 		{
-			contacts[i].normal = GBAlign(normal, contacts[i].normal);
+			contacts[i].normal = GBAlign(contacts[i].normal, normal);
 			contacts[i].distance = GBAbs(contacts[i].distance);
 		}
 	}
+
+	void alignNormalWithIncident();
 
 	bool equalPair(const GBManifold& other) const
 	{
@@ -1275,6 +1314,14 @@ void GBManifold::pruneOutsideAABB(GBAABB aabb, float epsilon)
 	}
 	clear();
 	combine(pruned);
+}
+
+void GBManifold::alignNormalWithIncident()
+{
+	if (pIncident && pReference)
+	{
+		normal = GBAlign(normal, pIncident->transform.position - pReference->transform.position);
+	}
 }
 
 void GBManifold::pruneWithNormal(float epsilon)

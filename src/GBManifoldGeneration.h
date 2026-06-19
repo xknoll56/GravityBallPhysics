@@ -968,10 +968,12 @@ struct GBManifoldGeneration
 
 
 		outManifold.pIncident = capsule.pBody;
+		outManifold.pReference = nullptr;
 
 		outManifold.pruneWithNormal(1e-4);
 		outManifold.correctPenetrations();
 
+		outManifold.setContactColliders((GBCollider*)&capsule, nullptr);
 
 		if (outManifold.numContacts > 0)
 			outManifold.separation = GBAbs(outManifold.contacts[0].distance);
@@ -1428,8 +1430,10 @@ struct GBManifoldGeneration
 		{
 			outManifold.addContact(c);
 			outManifold.pIncident = sphere.pBody;
+			outManifold.pReference = nullptr;
 			outManifold.separation = c.distance;
 			outManifold.normal = c.normal;
+			outManifold.setContactColliders((GBCollider*)&sphere, nullptr);
 			return true;
 		}
 		return false;
@@ -2157,6 +2161,46 @@ struct GBManifoldGeneration
 		return outManifold.numContacts > 0;
 	}
 
+	static GBQuad GBManifoldGetIncidentFace(const GBBoxCollider& incidentBox,
+		const GBBoxCollider& referenceBox, 
+		GBAABB incidentAABB,
+		GBCardinal incidentFaceCardinal)
+	{
+		GBTransform referenceInverse = referenceBox.transform.inverse();
+		GBTransform incidentInverse = incidentBox.transform.inverse();
+
+		GBQuad incidentFace = GBCardinalDirToQuad(incidentAABB, incidentFaceCardinal);
+		incidentFace.applyTransform(incidentBox.transform);
+		incidentFace.applyTransform(referenceInverse);
+
+		return incidentFace;
+	}
+
+	static bool GBBuildQuadBoxManifold(const GBBoxCollider& incidentBox,
+		const GBBoxCollider& referenceBox,
+		GBCardinal incidentFaceCardinal,
+		GBCardinal referenceFaceCardinal,
+		GBManifold& outManifold,
+		bool checkEdges = true)
+	{
+		GBAABB refAABB = GBAABB(GBVector3(), referenceBox.halfExtents);
+		GBAABB incAABB = GBAABB(GBVector3(), incidentBox.halfExtents);
+
+		GBManifold m;
+		GBQuad incidentFace = GBManifoldGetIncidentFace(incidentBox, referenceBox, incAABB, incidentFaceCardinal);
+		if (GBBuildQuadAABBManifold(incidentFace,
+			refAABB, referenceFaceCardinal, m, checkEdges))
+		{
+			GBPlane plane = incidentFace.toPlane();
+			m.pruneBehindPlane(plane);
+			m.applyTransformation(referenceBox.transform);
+
+			outManifold.combine(m);
+		}
+
+		return m.numContacts > 0;
+	}
+
 	static bool GBManifoldBoxBox(GBBoxCollider& boxA,
 		GBBoxCollider& boxB,
 		const GBSATCollisionData& colData,
@@ -2196,56 +2240,21 @@ struct GBManifoldGeneration
 		}
 
 		outManifold.clear();
-		GBTransform referenceInverse = pReference->transform.inverse();
 		GBTransform incidentInverse = pIncident->transform.inverse();
-
+		GBAABB incidentAABB(GBVector3::zero(), pIncident->halfExtents);
 		GBVector3 incidentFaceDirection = incidentInverse.transformDirection(-colData.bestAxis);
-		GBQuad incidentFace = GBAAABBDirectionToQuad(GBAABB(GBVector3::zero(), pIncident->halfExtents),
-			incidentFaceDirection);
-		incidentFace.applyTransform(pIncident->transform);
-		incidentFace.applyTransform(referenceInverse);
+		GBCardinal incidentFaceCardinal = incidentAABB.directionToFace(incidentFaceDirection);
+		GBCardinal referenceFaceCardinal = colData.bestCardinal;
 
-		GBAABB referenceAABB(GBVector3::zero(), pReference->halfExtents);
-		
-
-		GBManifold m;
-		if (GBBuildQuadAABBManifold(incidentFace, referenceAABB, colData.bestCardinal, m))
-		{
-			GBPlane plane = incidentFace.toPlane();
-			m.pruneBehindPlane(plane);
-			m.applyTransformation(pReference->transform);
-
-			outManifold.combine(m);
-			outManifold.pReference = pReference->pBody;
-			outManifold.pIncident = pIncident->pBody;
-			if (GBDot(outManifold.normal, colData.bestAxis) < 0)
-			{
-				outManifold.normal *= -1.0f;
-			}
-		}
-
-		//if (outManifold.numContacts == 0)
-		{
-			GBQuad referenceFace = GBAAABBDirectionToQuad(GBAABB(GBVector3::zero(), pReference->halfExtents),
-				referenceInverse.transformDirection(colData.bestAxis));
-			referenceFace.applyTransform(pReference->transform);
-			referenceFace.applyTransform(incidentInverse);
-			GBAABB incidentAABB(GBVector3::zero(), pIncident->halfExtents);
-			GBCardinal incidentFaceDirectionCardinal = incidentAABB.directionToFace(incidentFaceDirection);
-
-			m.reset();
-			if (GBBuildQuadAABBManifold(referenceFace, incidentAABB, incidentFaceDirectionCardinal, m, false))
-			{
-				
-				GBPlane plane = referenceFace.toPlane();
-				m.pruneBehindPlane(plane);
-				m.applyTransformation(pIncident->transform);
-			}
-			outManifold.combine(m);
-		}
+		GBBuildQuadBoxManifold(*pIncident, *pReference, incidentFaceCardinal, referenceFaceCardinal, outManifold);
+		GBBuildQuadBoxManifold(*pReference, *pIncident, referenceFaceCardinal, incidentFaceCardinal, outManifold, false);
 
 		outManifold.pIncident = pIncident->pBody;
 		outManifold.pReference = pReference->pBody;
+
+		outManifold.alignNormalWithIncident();
+		outManifold.alignContactsWithNormal();
+
 		outManifold.setContactColliders((GBCollider*)pIncident, (GBCollider*)pReference);
 		return outManifold.numContacts > 0;
 	}
@@ -2419,6 +2428,7 @@ struct GBManifoldGeneration
 		{
 			//B is always incident
 			outManifold.pIncident = box.pBody;
+			outManifold.pReference = nullptr;
 			normal = outManifold.normal;
 		}
 
@@ -2476,7 +2486,7 @@ struct GBManifoldGeneration
 			outManifold.separation = GBMin(outManifold.contacts[0].distance, outManifold.separation);
 		}
 
-		
+		outManifold.setContactColliders((GBCollider*)&box, nullptr);
 
 		return outManifold.numContacts > 0;
 	}
