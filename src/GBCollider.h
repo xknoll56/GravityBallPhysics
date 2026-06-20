@@ -341,7 +341,7 @@ struct GBManifold
 		for (int i = 0; i < numContacts; i++)
 		{
 			contacts[i].normal = -contacts[i].normal;
-			if (contacts[i].pIncident->pBody == pReference)
+			if (contacts[i].pIncident)
 			{
 				GBCollider* pTemp = contacts[i].pIncident;
 				contacts[i].pIncident = contacts[i].pReference;

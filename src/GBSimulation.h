@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <functional>
 #include <unordered_map>
+#include <cassert>
 
 struct GBTerrain
 {
@@ -557,10 +558,10 @@ struct GBSimulation
 		}
 	}
 
-	void solveDynamicManifold(const GBManifold& m, GBBody& A, GBBody& B, float dt, bool canTreatAsStatic = true)
+	void solveDynamicManifold(const GBManifold& m, float dt, bool canTreatAsStatic = true)
 	{
-		//if (A.isKinematic || B.isKinematic)
-		//	return;
+		assert(m.pIncident != nullptr);
+		assert(m.pReference != nullptr);
 
 		const float restitution = 0.05f;
 		const float percent = 0.3f;
@@ -570,22 +571,18 @@ struct GBSimulation
 
 		int count = m.numContacts;
 
-		GBVector3 dv = B.velocity - A.velocity;
-		float vRelN = GBDot(dv, m.normal);
-		//if (!m.isEdge && GBDot(GBVector3::up(), m.normal) > 0.90f && m.numContacts > 1 && GBAbs(vRelN) < 1.0f)
-
-
-		bool ignoreA = A.isStatic || A.isKinematic;
-		bool ignoreB = B.isStatic || B.isKinematic;
-		float aModifier = 1.0f;
-		float bModifier = 1.0f;
-
-
 
 		for (int i = 0; i < count; i++)
 		{
 			const GBContact& c = m.contacts[i];
 			GBVector3 n = c.normal;
+
+			GBBody& A = *c.pIncident->pBody;
+			GBBody& B = *c.pReference->pBody;
+
+
+			bool ignoreA = A.isStatic || A.isKinematic;
+			bool ignoreB = B.isStatic || B.isKinematic;
 
 			GBVector3 rA = c.position - A.transform.position;
 			GBVector3 rB = c.position - B.transform.position;
@@ -629,10 +626,8 @@ struct GBSimulation
 						solveStaticSphereManifold(m, *m.pIncident, dt);
 						return;
 					}
-
-					//if (m.pIncident->awakeTimer > 0.25)
 					{
-						solveStaticManifold(m, *m.pIncident, dt);
+						solveStaticManifold(m, dt);
 						return;
 					}
 				}
@@ -671,9 +666,9 @@ struct GBSimulation
 			GBVector3 impulse = n * j;
 
 			if (!ignoreA)
-				A.velocity -= impulse * A.invMass * aModifier;
+				A.velocity -= impulse * A.invMass;
 			if (!ignoreB)
-				B.velocity += impulse * B.invMass * bModifier;
+				B.velocity += impulse * B.invMass;
 
 			if (A.isKinematic)
 			{
@@ -706,9 +701,9 @@ struct GBSimulation
 			}
 
 			if (!ignoreA)
-				A.angularVelocity -= GBCross(rA, impulse) * A.invInertia * aModifier;
+				A.angularVelocity -= GBCross(rA, impulse) * A.invInertia;
 			if (!ignoreB)
-				B.angularVelocity += GBCross(rB, impulse) * B.invInertia * bModifier;
+				B.angularVelocity += GBCross(rB, impulse) * B.invInertia;
 
 			// --- FRICTION ---
 			if (GBDot(n, GBVector3::up()) > 0.05f)
@@ -752,7 +747,7 @@ struct GBSimulation
 		const static float restingThreshold = 1.0f;
 		const float rollingThreshold = 1.0f; // threshold for rolling without slip
 		const float cornerPushStrength = 0.05f;
-		const float minBounceVel = 0.001f;
+		const float restitutionThreshold = 0.5f; // CHANGE #2
 
 		const GBContact& c = manifold.contacts[0];
 
@@ -762,65 +757,68 @@ struct GBSimulation
 		if (flatness < minFlat)
 			notRestable = true;
 
-		GBVector3 n = c.normal;                     // contact normal
-		GBVector3 r = c.position - body.transform.position; // contact relative position
-		//GBVector3 vRel = body.velocity;
-		GBVector3 vRel = body.velocity;
-		//GBVector3 vRel = body.velocity + GBCross(body.angularVelocity, r); // contact velocity
+		GBVector3 n = c.normal;
+		GBVector3 r = c.position - body.transform.position;
+
+		// use contact velocity
+		GBVector3 vRel = body.velocity + GBCross(body.angularVelocity, r);
 
 		float vn = GBDot(vRel, n);
 
 		// --- Collision impulse ---
-		if (vn < -restingThreshold || notRestable) // only if approaching
+		if (vn < -restingThreshold || notRestable)
 		{
-
 			if (GBAbs(vn) > wakeThreshold && manifold.pReference && manifold.pReference->isMovable())
 				manifold.pReference->wakeIsland();
 
-			// Compute normal impulse
-			float jn = -(1.0f + restitution) * vn;
+			// restitution threshold instead of min bounce impulse
+			float restitutionUsed =
+				(GBAbs(vn) > restitutionThreshold)
+				? restitution
+				: 0.0f;
 
-			// Guarantee minimum bounce velocity
-			float minJn = minBounceVel;
-			if (jn < minJn)
-				jn = minJn;
+			float jn = -(1.0f + restitutionUsed) * vn;
 
-			// Apply normal impulse
-			body.velocity += n * (jn);
+			body.velocity += n * jn;
 			body.angularVelocity += body.invInertia * GBCross(r, n * jn);
-			return; // collision handled, skip rolling
+
+			return;
 		}
 
-
-
-
 		// --- Rolling without slip ---
-		if (fabs(vn) < rollingThreshold) // sphere essentially resting
+		if (fabs(vn) < rollingThreshold)
 		{
-			GBVector3 vTangent = vRel - n * vn; // remove normal component
+			GBVector3 vTangent = vRel - n * vn;
 			float vTangentLen = vTangent.length();
 
-			//if (vTangentLen > 1e-6f)
 			{
-				// enforce rolling: v + ω × r = 0 → ω = r × (-v) / |r|^2
-				GBVector3 omegaDesired = GBCross(r, -vTangent) / (r.lengthSquared());
+				GBVector3 omegaDesired =
+					GBCross(r, -vTangent) / (r.lengthSquared());
 
-				// optionally blend for stability
-				float blend = 1.0f; // 1.0 = fully enforce, <1 = smooth
-				body.angularVelocity = body.angularVelocity * (1.0f - blend) + omegaDesired * blend;
+				// blend instead of snap
+				float blend = 10.0f * dt;
+				blend = GBMin(blend, 1.0f);
+
+				body.angularVelocity =
+					body.angularVelocity * (1.0f - blend) +
+					omegaDesired * blend;
 			}
 
 			float frictionCoeff = body.dynamicFriction;
 			body.velocity -= vTangent * frictionCoeff * dt;
+
 			body.frameManifold.hasGroundedManifold = true;
 		}
 	}
 
+
 	void solveStaticManifold(
 		const GBManifold& manifold,
-		GBBody& body,
 		float dt)
 	{
+		assert(manifold.pIncident != nullptr);
+
+		GBBody& body = *manifold.pIncident;
 		if (manifold.numContacts == 0 || body.isKinematic)
 		{
 			if (body.useGravity)
@@ -837,6 +835,12 @@ struct GBSimulation
 					body.velocity.z = minGroundVelocity;
 				}
 			}
+			return;
+		}
+
+		if (bodyIsPureColliderType(*manifold.pIncident, ColliderType::Sphere))
+		{
+			solveStaticSphereManifold(manifold, *manifold.pIncident, dt);
 			return;
 		}
 
@@ -1011,79 +1015,88 @@ struct GBSimulation
 		}
 
 	}
-
 	void solveBallJoint(GBBallJoint& j, float dt)
 	{
 		GBBody& A = *j.A;
 		GBBody& B = *j.B;
 
-		// If both are static, nothing to solve
 		if (!A.isMovable() && !B.isMovable())
 			return;
 
-		// 1. World anchor positions
-		GBVector3 pa = A.transform.localToWorldPoint(j.localAnchorA);
-		GBVector3 pb = B.transform.localToWorldPoint(j.localAnchorB);
-
-		// 2. Constraint error (we want this to be zero)
-		GBVector3 error = pa - pb;
-
-		float errorLen = error.length();
-		if (errorLen < 1e-6f)
-			return;
-
-		// 3. Inverse masses
-		float wA = A.invMass;
-		float wB = B.invMass;
-
-		float wSum = wA + wB;
-		if (wSum == 0.0f)
-			return;
-
-		// 4. Position correction (split by mass)
-		GBVector3 correction = error / wSum;
-
-		if (A.isMovable())
-			A.transform.position -= correction * wA;
-
-		if (B.isMovable())
-			B.transform.position += correction * wB;
-
-		// 5. Angular correction (important for rigid behavior)
-
-		GBVector3 rA = pa - A.transform.position;
-		GBVector3 rB = pb - B.transform.position;
-
-		GBVector3 angCorrA = A.invInertia * GBCross(rA, correction);
-		GBVector3 angCorrB = B.invInertia * GBCross(rB, correction);
-
-		if (A.isMovable())
-			A.angularVelocity -= angCorrA;
-
-		if (B.isMovable())
-			B.angularVelocity += angCorrB;
-
-		// 6. Optional velocity damping (stability + removes jitter)
+		GBVector3 rA = A.transform.localToWorldPoint(j.localAnchorA) - A.transform.position;
+		GBVector3 rB = B.transform.localToWorldPoint(j.localAnchorB) - B.transform.position;
 
 		GBVector3 vA = A.velocity + GBCross(A.angularVelocity, rA);
 		GBVector3 vB = B.velocity + GBCross(B.angularVelocity, rB);
 
-		GBVector3 relVel = vA - vB;
+		if (A.isKinematic)
+			vA = A.velocity + GBCross(A.angularVelocity, rA);
 
-		float damping = 0.2f; // tune 0.1 - 0.4
+		if (B.isKinematic)
+			vB = B.velocity + GBCross(B.angularVelocity, rB);
 
-		GBVector3 dampImpulse = relVel * damping;
+		GBVector3 Cdot = vA - vB;
 
-		if (A.isMovable())
+		// position error (same idea as your contact solver bias)
+		GBVector3 error =
+			(A.transform.position + rA) -
+			(B.transform.position + rB);
+
+		const float beta = 0.2f;
+		GBVector3 bias = (error * beta) / dt;
+
+		const GBVector3 axes[3] =
 		{
-			A.velocity -= dampImpulse * A.invMass;
+			GBVector3(1,0,0),
+			GBVector3(0,1,0),
+			GBVector3(0,0,1)
+		};
+
+		GBVector3 impulse(0, 0, 0);
+
+		float wA = A.invMass;
+		float wB = B.invMass;
+
+		for (int i = 0; i < 3; i++)
+		{
+			GBVector3 n = axes[i];
+
+			float Cdot_i = GBDot(Cdot, n);
+			float bias_i = GBDot(bias, n);
+
+			GBVector3 rnA = GBCross(rA, n);
+			GBVector3 rnB = GBCross(rB, n);
+
+			float k =
+				wA + wB +
+				GBDot(rnA, A.invInertia * rnA) +
+				GBDot(rnB, B.invInertia * rnB);
+
+			if (k == 0.0f)
+				continue;
+
+			float lambda = -(Cdot_i + bias_i) / k;
+
+			// IMPORTANT: same style as your contact solver (stability)
+			lambda = GBClamp(lambda, -50.0f, 50.0f);
+
+			impulse += n * lambda;
 		}
+
+		// APPLY (identical structure to your contact solver)
+		if (A.isMovable())
+			A.velocity += impulse * A.invMass;
 
 		if (B.isMovable())
-		{
-			B.velocity += dampImpulse * B.invMass;
-		}
+			B.velocity -= impulse * B.invMass;
+
+		if (A.isMovable())
+			A.angularVelocity += A.invInertia * GBCross(rA, impulse);
+
+		if (B.isMovable())
+			B.angularVelocity -= B.invInertia * GBCross(rB, impulse);
 	}
+
 
 	bool overlapTest(GBCollider* colA, GBCollider* colB, GBSATCollisionData& outData, GBManifold& outManifold)
 	{
@@ -1454,7 +1467,7 @@ struct GBSimulation
 						if (manifold.numContacts > 0)
 						{
 							solveDynamicPenetration(manifold);
-							solveStaticManifold(manifold, *manifold.pIncident, deltaTime);
+							solveStaticManifold(manifold, deltaTime);
 							pBox->pBody->frameManifold.combineSupports(manifold, true, slop);
 						}
 					}
@@ -1463,7 +1476,7 @@ struct GBSimulation
 						if (manifold.numContacts > 0)
 						{
 							solveDynamicPenetration(manifold);
-							solveStaticManifold(manifold, *manifold.pIncident, deltaTime);
+							solveStaticManifold(manifold, deltaTime);
 							pCapsule->pBody->frameManifold.combineSupports(manifold, true, slop);
 						}
 					}
@@ -1472,7 +1485,7 @@ struct GBSimulation
 						if (manifold.numContacts > 0)
 						{
 							solveDynamicPenetration(manifold);
-							solveStaticManifold(manifold, *manifold.pIncident, deltaTime);
+							solveStaticManifold(manifold,  deltaTime);
 							pSphere->pBody->frameManifold.combineSupports(manifold, true, slop);
 						}
 					}
@@ -1558,6 +1571,8 @@ struct GBSimulation
 
 	void fixManifold(GBManifold& manifold)
 	{
+		assert(manifold.pIncident != nullptr);
+
 		manifold.capContacts();
 
 		manifold.flipAndSwapIfContactOnTop(manifold.normal);
@@ -1683,24 +1698,6 @@ struct GBSimulation
 			//*****************************************************************************************************
 			//*****************************************************************************************************
 			//*****************************************************************************************************
-			// BALL JOINT SOLVER
-			//*****************************************************************************************************
-			//*****************************************************************************************************
-			//*****************************************************************************************************
-			//*****************************************************************************************************
-			for (auto& ballIt : ballJoints)
-			{
-				// Not much to do here but run the solver, has to go first so penetration solvers 
-				// Correct any interpenetration
-
-				GBBallJoint* pBall = ballIt.get();
-				solveBallJoint(*pBall, interDeltaTime);
-			}
-
-			//*****************************************************************************************************
-			//*****************************************************************************************************
-			//*****************************************************************************************************
-			//*****************************************************************************************************
 			// DYNAMIC SOLVER
 			//*****************************************************************************************************
 			//*****************************************************************************************************
@@ -1713,7 +1710,6 @@ struct GBSimulation
 				GBBody* bodyA = sortedBodies[i];
 				if (bodyA->ignoreSample || bodyA->isStatic || bodyA->isSleeping || bodyA->isTrigger)
 					continue;
-				bool didColide = false;
 
 				for (GBCollider* colA : bodyA->colliders)
 				{
@@ -1745,7 +1741,7 @@ struct GBSimulation
 
 								solveDynamicPenetration(manifold);
 
-								solveDynamicManifold(manifold, *manifold.pIncident, *manifold.pReference, interDeltaTime, !manifold.pIncident->isKinematic);
+								solveDynamicManifold(manifold, interDeltaTime, !manifold.pIncident->isKinematic);
 
 								bool supportAdded = false;
 								if (manifold.pIncident)
@@ -1826,10 +1822,7 @@ struct GBSimulation
 
 								solveDynamicPenetration(manifold);
 
-								if (bodyIsPureColliderType(*manifold.pIncident, ColliderType::Sphere))
-									solveStaticSphereManifold(manifold, *manifold.pIncident, interDeltaTime);
-								else
-									solveStaticManifold(manifold, *manifold.pIncident, interDeltaTime);
+								solveStaticManifold(manifold, interDeltaTime);
 
 								bool supportAdded = false;
 								if (manifold.pIncident)
@@ -1852,6 +1845,25 @@ struct GBSimulation
 						}
 					}
 				}
+			}
+
+
+			//*****************************************************************************************************
+			//*****************************************************************************************************
+			//*****************************************************************************************************
+			//*****************************************************************************************************
+			// BALL JOINT SOLVER
+			//*****************************************************************************************************
+			//*****************************************************************************************************
+			//*****************************************************************************************************
+			//*****************************************************************************************************
+			for (auto& ballIt : ballJoints)
+			{
+				// Not much to do here but run the solver, has to go first so penetration solvers 
+				// Correct any interpenetration
+
+				GBBallJoint* pBall = ballIt.get();
+				solveBallJoint(*pBall, interDeltaTime);
 			}
 
 
@@ -1897,6 +1909,7 @@ struct GBSimulation
 				}
 
 			}
+
 			frame++;
 		}
 
