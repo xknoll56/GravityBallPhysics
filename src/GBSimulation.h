@@ -58,13 +58,11 @@ struct GBBallJoint
 	GBVector3 localAnchorA;
 	GBVector3 localAnchorB;
 
-
-	GBBallJoint(GBBody* A, GBBody* B, GBVector3 worldLocalA) :
+	GBBallJoint(GBBody* A, GBBody* B, GBVector3 worldLocalA, GBVector3 worldLocalB) :
 		A(A), B(B)
 	{
 		localAnchorA = A->transform.inverse().transformDirection(worldLocalA);
-		GBVector3 relPos = B->transform.position - A->transform.position;
-		localAnchorB = B->transform.inverse().transformDirection(worldLocalA - relPos);
+		localAnchorB = B->transform.inverse().transformDirection(worldLocalB);
 	}
 
 	GBVector3 accumulatedImpulse; // optional warm starting
@@ -421,14 +419,26 @@ struct GBSimulation
 		return pSpring;
 	}
 
-	GBBallJoint* createBallJoint(GBBody* a, GBBody* b, GBVector3 localA)
+	GBBallJoint* createBallJoint(GBBody* a, GBBody* b, GBVector3 localA, GBVector3 localB)
 	{
-		ballJoints.push_back(std::make_unique<GBBallJoint>(a, b, localA));
+		ballJoints.push_back(std::make_unique<GBBallJoint>(a, b, localA, localB));
 		GBBallJoint* pBall = ballJoints.back().get();
 		BodyPair pair(a, b);
 		pairBalls[pair] = pBall;
 		return pBall;
 	}
+
+	GBBallJoint* attachCapsuleBallJoint(GBBody* body, GBCapsuleCollider* pCap)
+	{
+		GBVector3 upper, lower, up;
+		pCap->extractSphereLocations(upper, lower, &up);
+		GBVector3 closer = GBCloserVectorToPosition(upper, lower, body->transform.position);
+		up = GBAlign(up, body->transform.position - pCap->transform.position);
+
+		return createBallJoint(body, pCap->pBody, closer - body->transform.position + up*(1.0f - GBLargeEpsilon)*pCap->radius, 
+			up * (pCap->height * 0.5f + pCap->radius));
+	}
+
 
 	GBBoxCollider* attachBoxCollider(GBBody* pBody, GBVector3 halfExtents, GBTransform localTransform = GBTransform(), bool insertToGrid = true)
 	{
@@ -621,7 +631,7 @@ struct GBSimulation
 				const static float stackModifier = 1.0f;
 				if (GBAbs(GBAbs(vn) < staticManifoldThreshold * stackModifier && upness > slopeRequirement))
 				{
-					if (bodyIsPureColliderType(*m.pIncident, ColliderType::Sphere))
+					if (bodyIsPureColliderType(*m.pIncident, ColliderType::Sphere) && !bodyIsPureColliderType(*m.pReference, ColliderType::Sphere))
 					{
 						solveStaticSphereManifold(m, *m.pIncident, dt);
 						return;
@@ -840,11 +850,13 @@ struct GBSimulation
 
 		if (bodyIsPureColliderType(*manifold.pIncident, ColliderType::Sphere))
 		{
+			if(!manifold.pReference || (manifold.pReference && !bodyIsPureColliderType(*manifold.pReference, ColliderType::Sphere)))
 			solveStaticSphereManifold(manifold, *manifold.pIncident, dt);
 			return;
 		}
 
 		const float restitution = body.restitution;
+		int referenceColliders = GBMax(1, manifold.referenceColliders.size() - 1);
 
 		for (int i = 0; i < manifold.numContacts; i++)
 		{
@@ -888,6 +900,7 @@ struct GBSimulation
 				-(1.0f + restitution) * vn
 				- bias;
 			jn /= invMassEff;
+			jn /= body.colliders.size();
 
 			// Clamp for stability (like box solver)
 			jn = GBClamp(jn, 0.0f, 20.0f * body.mass);
@@ -1042,7 +1055,11 @@ struct GBSimulation
 			(A.transform.position + rA) -
 			(B.transform.position + rB);
 
-		const float beta = 0.2f;
+		float fullDt = (float)solverIterations * dt;
+
+		float beta = 0.2f - GBLerp(0.0f, 0.06f, 1.0f/(fullDt*60.0f));
+		beta = GBClamp(beta, 0.01f, 0.3f);
+
 		GBVector3 bias = (error * beta) / dt;
 
 		const GBVector3 axes[3] =
@@ -1083,6 +1100,8 @@ struct GBSimulation
 			impulse += n * lambda;
 		}
 
+
+
 		// APPLY (identical structure to your contact solver)
 		if (A.isMovable())
 			A.velocity += impulse * A.invMass;
@@ -1090,11 +1109,26 @@ struct GBSimulation
 		if (B.isMovable())
 			B.velocity -= impulse * B.invMass;
 
+		const static float twistDamp = 0.99f;
+
 		if (A.isMovable())
-			A.angularVelocity += A.invInertia * GBCross(rA, impulse);
+		{
+			GBVector3 aUp = A.transform.up();
+			GBVector3 twistAngularVel = GBDot(A.angularVelocity, aUp) * aUp;
+			GBVector3 rollAngularVel = A.angularVelocity - twistAngularVel;
+			A.angularVelocity = (twistAngularVel*twistDamp + rollAngularVel) + A.invInertia * GBCross(rA, impulse);
+
+		}
 
 		if (B.isMovable())
-			B.angularVelocity -= B.invInertia * GBCross(rB, impulse);
+		{
+			GBVector3 bUp = B.transform.up();
+			GBVector3 twistAngularVel = GBDot(B.angularVelocity, bUp) * bUp;
+			GBVector3 rollAngularVel = B.angularVelocity - twistAngularVel;
+			B.angularVelocity = (twistAngularVel * twistDamp + rollAngularVel) - B.invInertia * GBCross(rB, impulse);
+		}
+
+
 	}
 
 
@@ -1589,6 +1623,18 @@ struct GBSimulation
 				manifold.flipAndSwap();
 			}
 		}
+
+		auto ballIt = pairBalls.find(pair);
+		if (ballIt != pairBalls.end())
+		{
+			GBBallJoint* pBall = ballIt->second;
+			if (pBall->A == manifold.pReference)
+			{
+				manifold.flipAndSwap();
+			}
+
+
+		}
 	}
 
 
@@ -1710,7 +1756,7 @@ struct GBSimulation
 				GBBody* bodyA = sortedBodies[i];
 				if (bodyA->ignoreSample || bodyA->isStatic || bodyA->isSleeping || bodyA->isTrigger)
 					continue;
-
+				GBManifold bodyManifold;
 				for (GBCollider* colA : bodyA->colliders)
 				{
 					std::vector<GBCollider*> checkColliders;
@@ -1735,13 +1781,19 @@ struct GBSimulation
 							GBManifold manifold;
 							if (generateColliderManifold(colA, colB, manifold))
 							{
-								fixManifold(manifold);
+								//fixManifold(manifold);
+								if (manifold.pIncident != bodyA)
+									manifold.flipAndSwap();
 
 								curPairManifolds[pair] = manifold;
 
 								solveDynamicPenetration(manifold);
 
-								solveDynamicManifold(manifold, interDeltaTime, !manifold.pIncident->isKinematic);
+								if (bodyManifold.numContacts == 0)
+									bodyManifold = manifold;
+								else
+									bodyManifold.combine(manifold, true);
+								//solveDynamicManifold(manifold, interDeltaTime, !manifold.pIncident->isKinematic);
 
 								bool supportAdded = false;
 								if (manifold.pIncident)
@@ -1766,6 +1818,11 @@ struct GBSimulation
 
 				}
 
+				if (bodyManifold.numContacts > 0) {
+					bodyManifold.capContacts(8);
+					solveDynamicManifold(bodyManifold, interDeltaTime, !bodyManifold.pIncident->isKinematic);
+				}
+
 			}
 
 
@@ -1785,7 +1842,7 @@ struct GBSimulation
 				if (bodyA->ignoreSample || bodyA->isSleeping || !bodyA->isMovable())
 					continue;
 				handleStaticGeometry(*bodyA, interDeltaTime);
-
+				GBManifold bodyManifold;
 				for (GBCollider* colA : bodyA->colliders)
 				{
 					std::vector<GBCollider*> checkColliders;
@@ -1812,7 +1869,8 @@ struct GBSimulation
 							if (!bodyA->isMovable() || !bodyB->isMovable())
 							{
 
-								fixManifold(manifold);
+								if (manifold.pIncident != bodyA)
+									manifold.flipAndSwap();
 
 								curPairManifolds[ColliderPair(colA, colB)] = manifold;
 
@@ -1822,7 +1880,11 @@ struct GBSimulation
 
 								solveDynamicPenetration(manifold);
 
-								solveStaticManifold(manifold, interDeltaTime);
+								if (bodyManifold.numContacts == 0)
+									bodyManifold = manifold;
+								else
+									bodyManifold.combine(manifold, true);
+								//solveStaticManifold(manifold, interDeltaTime);
 
 								bool supportAdded = false;
 								if (manifold.pIncident)
@@ -1844,6 +1906,11 @@ struct GBSimulation
 							}
 						}
 					}
+				}
+
+				if (bodyManifold.numContacts > 0) {
+					bodyManifold.capContacts(8);
+					solveStaticManifold(bodyManifold, interDeltaTime);
 				}
 			}
 

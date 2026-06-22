@@ -262,6 +262,17 @@ inline float GBComputeYawFromAxes(
     return std::atan2f(y, x);
 }
 
+inline GBVector3 GBCloserVectorToPosition(const GBVector3& a, const GBVector3& b, const GBVector3& pos)
+{
+    float dA = (pos - a).lengthSquared();
+    float dB = (pos - b).lengthSquared();
+    if (dA >= dB)
+        return b;
+    else
+        return a;
+
+}
+
 
 // ----------------------------
 // 4D Vector

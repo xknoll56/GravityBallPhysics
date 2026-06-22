@@ -132,6 +132,7 @@ struct GBManifold
 	GBSATCollisionData data;
 	GBCardinal incidentFace = GBCardinal::None;
 	GBCardinal referemceFace = GBCardinal::None;
+	std::unordered_set<GBCollider*> referenceColliders;
 
 	GBManifold()
 	{
@@ -142,6 +143,25 @@ struct GBManifold
 		pIncident(pIncident), pReference(pReference)
 	{
 		addContact(contact);
+	}
+
+	GBManifold operator=(const GBManifold other)
+	{
+		numContacts = other.numContacts;
+		separation = other.separation;
+		normal = other.normal;
+		pIncident = other.pIncident;
+		pReference = other.pReference;
+		isEdge = other.isEdge;
+		isDynamicManifold = other.isDynamicManifold;
+		isJoint = other.isJoint;
+		data = other.data;
+		incidentFace = other.incidentFace;
+		referemceFace = other.referemceFace;
+		for (int i = 0; i < numContacts; i++)
+			contacts[i] = other.contacts[i];
+
+		return *this;
 	}
 	// --------------------------------------------------
 	// Utility helpers
@@ -231,6 +251,9 @@ struct GBManifold
 		{
 			addContactSortedUnique(contact, GBEpsilon);
 		}
+
+		referenceColliders.insert(contact.pIncident);
+		referenceColliders.insert(contact.pReference);
 	}
 
 	int countColliders(const GBBody& self) const
