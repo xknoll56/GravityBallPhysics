@@ -586,9 +586,11 @@ struct GBSimulation
 		{
 			const GBContact& c = m.contacts[i];
 			GBVector3 n = c.normal;
-
 			GBBody& A = *c.pIncident->pBody;
 			GBBody& B = *c.pReference->pBody;
+
+			// Should be done earlier doing pruning....
+			n = GBAlign(n, c.pIncident->transform.position - c.position);
 
 
 			bool ignoreA = A.isStatic || A.isKinematic;
@@ -850,8 +852,11 @@ struct GBSimulation
 
 		if (bodyIsPureColliderType(*manifold.pIncident, ColliderType::Sphere))
 		{
-			if(!manifold.pReference || (manifold.pReference && !bodyIsPureColliderType(*manifold.pReference, ColliderType::Sphere)))
-			solveStaticSphereManifold(manifold, *manifold.pIncident, dt);
+			bool otherIsSphere = bodyIsPureColliderType(*manifold.pReference, ColliderType::Sphere);
+			if (otherIsSphere)
+				return;
+			else if (!manifold.pReference || (manifold.pReference))
+				solveStaticSphereManifold(manifold, *manifold.pIncident, dt);
 			return;
 		}
 
