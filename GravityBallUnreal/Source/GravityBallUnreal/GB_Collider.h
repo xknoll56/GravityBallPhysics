@@ -30,5 +30,5 @@ public:
 	uint32 mask = 0b01;
 
 	UPROPERTY(EditAnywhere)
-	uint32 layer = ~0b01;
+	uint32 layer = ~0b00;
 };

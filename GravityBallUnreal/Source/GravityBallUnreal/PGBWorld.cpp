@@ -52,6 +52,16 @@ void APGBWorld::BeginPlay()
 {
 	Super::BeginPlay();
 
+
+	//GBBody* pBody1 = simulation.createBody();
+	//GBBoxCollider* pBox = simulation.attachBoxCollider(pBody1, { 0.5f,0.5f,0.5f });
+	//pBody1->transform.position = { 0,0,10 };
+
+	bDoPhysicsStep = true;
+	doSpawnActors = true;
+	doDrawAllPhysicsColliders = true;
+
+
 	//bool autoRegister = true;
 	if (doSpawnActors)
 	{
@@ -95,6 +105,8 @@ void APGBWorld::BeginPlay()
 	{
 		MeshComponent->SetMaterial(0, TriangleMaterial);
 	}
+
+
 }
 
 void APGBWorld::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -1397,6 +1409,7 @@ void APGBWorld::Tick(float DeltaTime)
 		updateSimulationActors();
 	if (doDrawAllPhysicsColliders)
 		drawAllPhysicsColliders();
+
 
 }
 
