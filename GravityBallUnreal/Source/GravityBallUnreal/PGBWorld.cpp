@@ -53,9 +53,17 @@ void APGBWorld::BeginPlay()
 	Super::BeginPlay();
 
 
-	//GBBody* pBody1 = simulation.createBody();
-	//GBBoxCollider* pBox = simulation.attachBoxCollider(pBody1, { 0.5f,0.5f,0.5f });
-	//pBody1->transform.position = { 0,0,10 };
+	FString levelName = GetWorld()->GetMapName();
+	levelName.RemoveFromStart(GetWorld()->StreamingLevelsPrefix);
+	GBSceneSimulation* pSimulationScene = nullptr;
+
+	if (levelName == "BoxStack")
+	{
+		pSimulationScene = new GBSceneBoxStack(&simulation);
+	}
+
+	if(pSimulationScene)
+		pSimulationScene->start();
 
 	bDoPhysicsStep = true;
 	doSpawnActors = true;

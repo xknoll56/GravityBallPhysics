@@ -5,35 +5,11 @@
 #include "Camera/CameraComponent.h"
 #include "ProceduralMeshComponent.h" // Needed for procedural meshes
 #include "GBSimulation.h"
+#include "GBPhysicsScene.h"
 #include "HAL/Runnable.h"
 #include "HAL/RunnableThread.h"
 #include <string>
 
-struct RenderableCollider
-{
-	GBVector3 color;
-	bool translucent;
-	bool drawWireFrame;
-	bool doRender;
-	bool ignoreSpawn;
-	std::string name;
-	RenderableCollider(GBVector3 color, bool translucent = true, bool drawWireFrame = false, bool doRender = true, bool ignoreSpawn = false, std::string name = "") :
-		color(color), translucent(translucent), drawWireFrame(drawWireFrame), doRender(doRender), ignoreSpawn(ignoreSpawn), name(name)
-	{
-
-	}
-};
-
-struct BodyTag
-{
-	std::string tag;
-
-	BodyTag(std::string tag = "") :
-		tag(tag)
-	{
-
-	}
-};
 
 #include "PGBWorld.generated.h"
 
