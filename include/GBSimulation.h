@@ -1,4 +1,5 @@
-﻿#include "GBInclude.h"
+﻿#pragma once
+#include "GBInclude.h"
 
 
 #include <typeinfo>

@@ -1312,7 +1312,7 @@ struct GBPlane : GBStaticGeometry
 	}
 };
 
-void GBManifold::pruneBehindPlane(const GBPlane& plane)
+inline void GBManifold::pruneBehindPlane(const GBPlane& plane)
 {
 	GBManifold pruned;
 	pruned.useNormal(*this);
@@ -1325,7 +1325,7 @@ void GBManifold::pruneBehindPlane(const GBPlane& plane)
 	combine(pruned);
 }
 
-void GBManifold::pruneOutsideAABB(GBAABB aabb, float epsilon)
+inline void GBManifold::pruneOutsideAABB(GBAABB aabb, float epsilon)
 {
 	GBManifold pruned;
 	pruned.useNormal(*this);
@@ -1339,7 +1339,7 @@ void GBManifold::pruneOutsideAABB(GBAABB aabb, float epsilon)
 	combine(pruned);
 }
 
-void GBManifold::alignNormalWithIncident()
+inline void GBManifold::alignNormalWithIncident()
 {
 	if (pIncident && pReference)
 	{
@@ -1347,7 +1347,7 @@ void GBManifold::alignNormalWithIncident()
 	}
 }
 
-void GBManifold::pruneWithNormal(float epsilon)
+inline void GBManifold::pruneWithNormal(float epsilon)
 {
 	GBManifold pruned;
 	pruned.useNormal(*this);
@@ -1623,7 +1623,7 @@ inline bool GBManifold::canSleep(const GBVector3& com) const
 	return tri.PointInTriangle(proj);
 }
 
-bool GBManifold::containsSupportOrigin(GBVector3 pos, float tolerance, float minRestingSlope)
+inline bool GBManifold::containsSupportOrigin(GBVector3 pos, float tolerance, float minRestingSlope)
 {
 	bool negX = false;
 	bool posX = false;
