@@ -112,6 +112,8 @@ public:
 	GBBody* getBodyByName(UWorld* world, std::string name);
 	std::vector<GBBody*> getBodiesByTag(UWorld* world, std::string tag);
 	SceneEnumerated sceneEnum;
+	void initSceneBoxStack();
+	void updateSceneBoxStack();
 
 	static FVector toFVector(GBVector3 v, bool scale = true);
 	static FQuat toFQuat(const GBQuaternion& q);

@@ -47,6 +47,48 @@ APGBWorld::APGBWorld()
 	MeshComponent = CreateDefaultSubobject<UProceduralMeshComponent>(TEXT("ProceduralMesh"));
 }
 
+void APGBWorld::initSceneBoxStack()
+{
+	GBBody* pBody;
+	GBBoxCollider* pBox;
+
+	const static int numBoxes = 10;
+	const static float spacing = 1.25f;
+
+	for (int i = 0; i < numBoxes; i++)
+	{
+		for (int j = 0; j < numBoxes; j++)
+		{
+			pBody = simulation.createBody();
+			pBox = simulation.attachBoxCollider(pBody, { 0.5f,0.5f,0.5f });
+			pBody->transform.position = { 0,j * 1.01f, 0.5f + i * spacing };
+			pBox->pData = new RenderableCollider({ (float)((i + 1) % 2),
+				(float)(j % 2), (float)((i + j) % 2) });
+		}
+
+	}
+
+
+	for (int i = 0; i < 10; i++)
+	{
+		shootableBody = simulation.createBody();
+		shootableBody->transform.position = { -25.0f,-10.0f + 2.0f * i,0.5f };
+		GBSphereCollider* pSphere = simulation.attachSphereCollider(shootableBody, 0.5f + (i * 0.1f) * 0.75);
+		pSphere->pData = new RenderableCollider({ 0.1f * (i % 2),0.76f * (i + 1 % 2), 0.92f });
+		shootableBody->setMass(5.0f * pBox->volume());
+		shootStack[i] = shootableBody;
+	}
+
+	shootableBody = shootStack[0];
+	shootCount = 10;
+
+	pBody = simulation.createBody();
+	pBox = simulation.attachBoxCollider(pBody, { 100.0f,100.0f,0.1f });
+	pBody->transform.position = { 0.0f,0.0f,-0.05f };
+	pBody->isStatic = true;
+	sceneEnum = SCENE_BOX;
+}
+
 // Called when the game starts or when spawned
 void APGBWorld::BeginPlay()
 {
@@ -58,45 +100,7 @@ void APGBWorld::BeginPlay()
 
 	if (levelName == "BoxStack")
 	{
-		GBBody* pBody;
-		GBBoxCollider* pBox;
-
-		const static int numBoxes = 10;
-		const static float spacing = 1.25f;
-
-		for (int i = 0; i < numBoxes; i++)
-		{
-			for (int j = 0; j < numBoxes; j++)
-			{
-				pBody = simulation.createBody();
-				pBox = simulation.attachBoxCollider(pBody, { 0.5f,0.5f,0.5f });
-				pBody->transform.position = { 0,j * 1.01f, 0.5f + i * spacing };
-				pBox->pData = new RenderableCollider({ (float)((i + 1) % 2),
-					(float)(j % 2), (float)((i + j) % 2) });
-			}
-
-		}
-
-
-		for (int i = 0; i < 10; i++)
-		{
-			shootableBody = simulation.createBody();
-			shootableBody->transform.position = { -25.0f,-10.0f + 2.0f*i,0.5f };
-			GBSphereCollider* pSphere = simulation.attachSphereCollider(shootableBody, 0.5f + (i*0.1f)*0.75);
-			pSphere->pData = new RenderableCollider({ 0.1f*(i%2),0.76f*(i+1%2), 0.92f});
-			shootableBody->setMass(5.0f * pBox->volume());
-			shootStack[i] = shootableBody;
-		}
-
-		shootableBody = shootStack[0];
-		shootCount = 10;
-
-		pBody = simulation.createBody();
-		pBox = simulation.attachBoxCollider(pBody, { 50.0f,50.0f,0.1f });
-		pBody->transform.position = { 0.0f,0.0f,-0.05f };
-		pBody->isStatic = true;
-		sceneEnum = SCENE_BOX;
-
+		initSceneBoxStack();
 	}
 
 
@@ -1449,7 +1453,7 @@ void APGBWorld::Tick(float DeltaTime)
 	{
 	case SCENE_BOX:
 	{
-
+		drawAABB(GetWorld(), simulation.gridMap.toAABB());
 	}
 	break;
 	}
