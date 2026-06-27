@@ -40,7 +40,8 @@ struct BodyTag
 
 enum SceneEnumerated
 {
-	SCENE_BOX = 0
+	SCENE_BOX = 0,
+	SCENE_MULTIBODY = 1
 };
 
 UCLASS()
@@ -113,7 +114,9 @@ public:
 	std::vector<GBBody*> getBodiesByTag(UWorld* world, std::string tag);
 	SceneEnumerated sceneEnum;
 	void initSceneBoxStack();
+	void initSceneMultibody();
 	void updateSceneBoxStack();
+	void updateSceneMultibody();
 
 	static FVector toFVector(GBVector3 v, bool scale = true);
 	static FQuat toFQuat(const GBQuaternion& q);
