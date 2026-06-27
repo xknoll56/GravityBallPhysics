@@ -66,7 +66,7 @@ struct GBSceneBoxStack : GBSceneSimulation
 		const static int numBoxes = 10;
 		const static float spacing = 1.01f;
 
-		for (int i = 0; numBoxes; i++)
+		for (int i = 0; i<numBoxes; i++)
 		{
 			pBody = pSimulation->createBody();
 			pBox = pSimulation->attachBoxCollider(pBody, { 0.5f,0.5f,0.5f });
