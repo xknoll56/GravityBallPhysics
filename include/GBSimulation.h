@@ -851,7 +851,7 @@ struct GBSimulation
 			return;
 		}
 
-		if (bodyIsPureColliderType(*manifold.pIncident, ColliderType::Sphere))
+		if (bodyIsPureColliderType(*manifold.pIncident, ColliderType::Sphere) && manifold.pReference)
 		{
 			bool otherIsSphere = bodyIsPureColliderType(*manifold.pReference, ColliderType::Sphere);
 			if (otherIsSphere)
