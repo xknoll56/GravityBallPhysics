@@ -5,13 +5,43 @@
 #include "Camera/CameraComponent.h"
 #include "ProceduralMeshComponent.h" // Needed for procedural meshes
 #include "GBSimulation.h"
-#include "GBPhysicsScene.h"
 #include "HAL/Runnable.h"
 #include "HAL/RunnableThread.h"
 #include <string>
 
 
 #include "PGBWorld.generated.h"
+
+struct RenderableCollider
+{
+	GBVector3 color;
+	bool translucent;
+	bool drawWireFrame;
+	bool doRender;
+	bool ignoreSpawn;
+	std::string name;
+	RenderableCollider(GBVector3 color, bool translucent = false, bool drawWireFrame = false, bool doRender = true, bool ignoreSpawn = false, std::string name = "") :
+		color(color), translucent(translucent), drawWireFrame(drawWireFrame), doRender(doRender), ignoreSpawn(ignoreSpawn), name(name)
+	{
+
+	}
+};
+
+struct BodyTag
+{
+	std::string tag;
+
+	BodyTag(std::string tag = "") :
+		tag(tag)
+	{
+
+	}
+};
+
+enum SceneEnumerated
+{
+	SCENE_BOX = 0
+};
 
 UCLASS()
 class GRAVITYBALLUNREAL_API APGBWorld : public APawn
@@ -81,6 +111,7 @@ public:
 	void followCamera(UWorld* world, GBBody& body);
 	GBBody* getBodyByName(UWorld* world, std::string name);
 	std::vector<GBBody*> getBodiesByTag(UWorld* world, std::string tag);
+	SceneEnumerated sceneEnum;
 
 	static FVector toFVector(GBVector3 v, bool scale = true);
 	static FQuat toFQuat(const GBQuaternion& q);
