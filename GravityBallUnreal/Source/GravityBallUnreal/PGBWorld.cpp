@@ -82,10 +82,14 @@ void APGBWorld::initSceneBoxStack()
 	shootableBody = shootStack[0];
 	shootCount = 10;
 
-	pBody = simulation.createBody();
-	pBox = simulation.attachBoxCollider(pBody, { 100.0f,100.0f,0.1f });
-	pBody->transform.position = { 0.0f,0.0f,-0.05f };
-	pBody->isStatic = true;
+	//pBody = simulation.createBody();
+	//pBody->transform.position = { 0.0f,0.0f,-0.05f };
+	//pBox = simulation.attachBoxCollider(pBody, { 100.0f,100.0f,0.1f });
+	//pBox = simulation.attachBoxCollider(pBody, { 100.0f,100.0f,99.9f });
+	//pBox = simulation.attachBoxCollider(pBody, { 100.0f, -49.9f, 50.0f });
+	//pBox = simulation.attachBoxCollider(pBody, { 100.0f, 49.9f, 50.0f });
+	//pBody->isStatic = true;
+
 	sceneEnum = SCENE_BOX;
 }
 
