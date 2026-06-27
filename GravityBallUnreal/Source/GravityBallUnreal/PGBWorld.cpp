@@ -113,13 +113,13 @@ void APGBWorld::initSceneMultibody()
 			else
 			{
 				GBVector3 p1 = GBVector3(0, radius * cos(portion * 2 * GB_PI), radius * heightModifier * sin(portion * 2 * GB_PI));
-				GBVector3 p2 = p1 + GBVector3(0, 0, 0.4f);
+				GBVector3 p2 = p1 + GBVector3(0, 0, 1.0f);
 				GBCapsuleCollider testCap = GBCapsuleCollider::capsuleFromEdge({ p1, p2 });
 				GBCapsuleCollider* pCap = simulation.attachCapsuleCollider(C, thickness, testCap.height,
 					GBTransform(testCap.transform.position - C->transform.position, testCap.transform.rotation));
 				setRenderableData(pCap, color);
 				p1 = p2;
-				p2 = p1 + GBVector3(0, -0.25, 0.0f);
+				p2 = p1 + GBVector3(0, -0.5, 0.0f);
 
 				testCap = GBCapsuleCollider::capsuleFromEdge({ p1, p2 });
 				pCap = simulation.attachCapsuleCollider(C, thickness, testCap.height,
@@ -205,25 +205,25 @@ void APGBWorld::initSceneMultibody()
 			switch (start)
 			{
 			case 0:
-				startPos = { 5, 5, 1 };
+				startPos = { 5, 5, 5 };
 				color = { 1,0,0 };
 				break;
 			case 1:
-				startPos = { -5, 5, 1 };
+				startPos = { -5, 5, 5 };
 				color = { 0,1,0 };
 				break;
 			case 2:
-				startPos = { -5, -5, 1 };
+				startPos = { -5, -5, 5 };
 				color = { 0,0,1 };
 				break;
 			case 3:
-				startPos = { 5, -5, 1 };
+				startPos = { 5, -5, 5 };
 				color = { 0.74,0.83, 0.94 };
 				break;
 			}
 			GBBody* Box = simulation.createBody();
 			GBEdge edges[4];
-			GBBoxCollider bc({ 0.5,0.5,0.5 });
+			GBBoxCollider bc({ 1.0,1.0,1.0 });
 			for (int i = 0; i < 6; i++)
 			{
 				GBCardinal faceDir = (GBCardinal)i;
