@@ -552,11 +552,11 @@ struct GBGrid
 
 struct GBGridMap
 {
-	GBVector3 origin = { -50.0f, -50.0f, -25.0f };       // Origin point of the grid
+	GBVector3 origin = { -100.0f, -100.0f, -25.0f };       // Origin point of the grid
 	float cellSize = 1.0f;     // Size of each cell in the grid
-	int cellsX = 10;            // Number of cells along the X axis
-	int cellsY = 10;            // Number of cells along the Y axis
-	int cellsZ = 10;            // Number of cells along the Z axis
+	int cellsX = 20;            // Number of cells along the X axis
+	int cellsY = 20;            // Number of cells along the Y axis
+	int cellsZ = 20;            // Number of cells along the Z axis
 	int gridsX = 10;
 	int gridsY = 10;
 	int gridsZ = 5;
@@ -564,7 +564,7 @@ struct GBGridMap
 	std::vector<int> occupiedGridIndices;
 	std::map<int, GBGrid> grids;
 
-	GBGridMap(GBVector3 origin = GBVector3(-50.0f, -50.0f, -25.0f), float cellSize = 1.0f, int cellsX = 20, int cellsY = 20, int cellsZ = 20, int gridsX = 10, int gridsY = 10, int gridsZ = 5) :
+	GBGridMap(GBVector3 origin = GBVector3(-100.0f, -100.0f, -25.0f), float cellSize = 1.0f, int cellsX = 20, int cellsY = 20, int cellsZ = 20, int gridsX = 10, int gridsY = 10, int gridsZ = 5) :
 		origin(origin), cellSize(cellSize), cellsX(cellsX), cellsY(cellsY), cellsZ(cellsZ), gridsX(gridsX), gridsY(gridsY), gridsZ(gridsZ)
 	{
 
