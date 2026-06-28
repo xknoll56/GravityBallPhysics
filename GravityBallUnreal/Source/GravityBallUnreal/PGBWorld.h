@@ -38,11 +38,6 @@ struct BodyTag
 	}
 };
 
-enum SceneEnumerated
-{
-	SCENE_BOX = 0,
-	SCENE_MULTIBODY = 1
-};
 
 UCLASS()
 class GRAVITYBALLUNREAL_API APGBWorld : public APawn
@@ -112,11 +107,6 @@ public:
 	void followCamera(UWorld* world, GBBody& body);
 	GBBody* getBodyByName(UWorld* world, std::string name);
 	std::vector<GBBody*> getBodiesByTag(UWorld* world, std::string tag);
-	SceneEnumerated sceneEnum;
-	void initSceneBoxStack();
-	void initSceneMultibody();
-	void updateSceneBoxStack();
-	void updateSceneMultibody();
 
 	static FVector toFVector(GBVector3 v, bool scale = true);
 	static FQuat toFQuat(const GBQuaternion& q);
