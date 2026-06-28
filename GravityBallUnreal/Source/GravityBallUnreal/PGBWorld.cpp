@@ -90,7 +90,7 @@ void APGBWorld::initSceneMultibody()
 
 	// --- G ---
 	{
-		GBBody* C = simulation.createBody();
+		GBBody* C = simulation.createBody(5.0f);
 
 		float thickness = 0.25f;
 		float radius = 1.0f;
@@ -131,16 +131,16 @@ void APGBWorld::initSceneMultibody()
 
 		GBVector3 min = C->aabb.low();
 		setRenderableData(simulation.attachBoxCollider(C, { 0.25f, C->aabb.halfExtents.y,0.1f }, GBTransform(-C->transform.position
-			+ min.zComponent() * (1.05f) + GBVector3::right() * 0.25f)), color);
+			+ min.zComponent() * (1.05f) + GBVector3::right() * 0.25f, GBQuaternion::fromAxisAngle({0,0,1}, GB_PI*0.25f))), color);
 		setRenderableData(simulation.attachBoxCollider(C, {C->aabb.halfExtents.y, 0.25f,0.1f }, GBTransform(-C->transform.position
-			+ min.zComponent() * (1.05f) + GBVector3::right() * 0.25f)), color);
+			+ min.zComponent() * (1.05f) + GBVector3::right() * 0.25f, GBQuaternion::fromAxisAngle({ 0,0,1 }, GB_PI * 0.25f))), color);
 
 		C->transform.position = { 0, -2, 2 };
 	}
 
 	// --- B ---
 	{
-		GBBody* B = simulation.createBody();
+		GBBody* B = simulation.createBody(5.0f);
 
 		float thickness = 0.25f;
 		float radius = 0.80f;
@@ -189,9 +189,9 @@ void APGBWorld::initSceneMultibody()
 		
 		GBVector3 min = B->aabb.low();
 		setRenderableData(simulation.attachBoxCollider(B, { 0.25f, B->aabb.halfExtents.y,0.1f }, GBTransform(-B->transform.position
-			+ min.zComponent()*(1.05f) + GBVector3::right() * 0.25f)), color);
+			+ min.zComponent()+ GBVector3::right() * 0.25f, GBQuaternion::fromAxisAngle({ 0,0,1 }, GB_PI * 0.25f))), color);
 		setRenderableData(simulation.attachBoxCollider(B, { B->aabb.halfExtents.y, 0.25f,0.1f }, GBTransform(-B->transform.position
-			+ min.zComponent() * (1.05f) + GBVector3::right() * 0.25f)), color);
+			+ min.zComponent() + GBVector3::right() * 0.25f, GBQuaternion::fromAxisAngle({ 0,0,1 }, GB_PI * 0.25f))), color);
 
 		B->transform.position = { 0, 2, 2 };
 	}
