@@ -62,7 +62,7 @@ public:
 	// Called to bind functionality to input
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 
-	void moveCamera(float deltaTime);
+	void moveCamera(float deltaTime, bool doMovePosition = true);
 	void movePosition(float deltaTime, GBVector3& outPosition, float speed = 1.0f);
 
 	static void drawAABB(UWorld* World, GBAABB aabb, FColor color = FColor::Green, float thickness = 2.0f);

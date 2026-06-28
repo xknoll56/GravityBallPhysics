@@ -27,6 +27,7 @@ protected:
 	virtual void BeginPlay() override;
 	SceneEnumerated sceneEnum;
 
+	GBBody* pPlayerBody = nullptr;
 
 public:
 	// Called every frame
@@ -39,5 +40,5 @@ public:
 	void initSceneFPS();
 	void updateSceneBoxStack();
 	void updateSceneMultibody();
-	void updateSceneFPS();
+	void updateSceneFPS(float dt);
 };

@@ -995,7 +995,7 @@ void APGBWorld::movePosition(float deltaTime, GBVector3& outPosition, float spee
 	}
 }
 
-void APGBWorld::moveCamera(float deltaTime)
+void APGBWorld::moveCamera(float deltaTime, bool doMovePosition)
 {
 	// Get the player controller
 	if (APlayerController* PC = GetWorld()->GetFirstPlayerController())
@@ -1022,20 +1022,24 @@ void APGBWorld::moveCamera(float deltaTime)
 		FVector Forward = CameraComponent->GetForwardVector();
 		FVector Right = CameraComponent->GetRightVector();
 
-		if (PC->IsInputKeyDown(EKeys::W)) MoveDirection += Forward;
-		if (PC->IsInputKeyDown(EKeys::S)) MoveDirection -= Forward;
-		if (PC->IsInputKeyDown(EKeys::D)) MoveDirection += Right;
-		if (PC->IsInputKeyDown(EKeys::A)) MoveDirection -= Right;
-
-		if (!MoveDirection.IsNearlyZero())
+		if (doMovePosition)
 		{
-			MoveDirection.Normalize();
-			float MoveSpeed = 300.f; // units/sec
-			if (PC->IsInputKeyDown(EKeys::LeftShift))
+
+			if (PC->IsInputKeyDown(EKeys::W)) MoveDirection += Forward;
+			if (PC->IsInputKeyDown(EKeys::S)) MoveDirection -= Forward;
+			if (PC->IsInputKeyDown(EKeys::D)) MoveDirection += Right;
+			if (PC->IsInputKeyDown(EKeys::A)) MoveDirection -= Right;
+
+			if (!MoveDirection.IsNearlyZero())
 			{
-				MoveSpeed *= runModifier;
+				MoveDirection.Normalize();
+				float MoveSpeed = 300.f; // units/sec
+				if (PC->IsInputKeyDown(EKeys::LeftShift))
+				{
+					MoveSpeed *= runModifier;
+				}
+				AddActorWorldOffset(MoveDirection * MoveSpeed * deltaTime, true);
 			}
-			AddActorWorldOffset(MoveDirection * MoveSpeed * deltaTime, true);
 		}
 		if (PC->WasInputKeyJustPressed(EKeys::SpaceBar))
 		{

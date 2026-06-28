@@ -42,7 +42,7 @@ void APGBWorld_Demo::Tick(float DeltaTime)
 	break;
 	case SCENE_FPS:
 	{
-		updateSceneFPS();
+		updateSceneFPS(DeltaTime);
 	}
 	break;
 	}
@@ -267,8 +267,15 @@ void APGBWorld_Demo::initSceneBoxStack()
 
 void APGBWorld_Demo::initSceneFPS()
 {
-	GBBody* pBody = simulation.createBody();
-	GBSphereCollider* pSphere = simulation.attachSphereCollider(pBody, 0.5f);
+	pPlayerBody = simulation.createBody();
+	GBCapsuleCollider* pPlayerCap = simulation.attachCapsuleCollider(pPlayerBody, 0.5f, 1.0f);
+	setRenderableData(pPlayerCap, { 1,1,1 }, true, true);
+	pPlayerBody->isKinematic = true;
+	pPlayerBody->transform.position = { 0,0,5 };
+
+	sceneEnum = SCENE_FPS;
+	doUpdateCamera = false;
+	wasdMoveBindings = true;
 }
 void APGBWorld_Demo::updateSceneBoxStack()
 {
@@ -278,7 +285,9 @@ void APGBWorld_Demo::updateSceneMultibody()
 {
 
 }
-void APGBWorld_Demo::updateSceneFPS()
+void APGBWorld_Demo::updateSceneFPS(float dt)
 {
-
+	moveCamera(dt, false);
+	movePosition(dt, pPlayerBody->transform.position, 10.0f);
+	setCameraPosition(pPlayerBody->transform.position);
 }
