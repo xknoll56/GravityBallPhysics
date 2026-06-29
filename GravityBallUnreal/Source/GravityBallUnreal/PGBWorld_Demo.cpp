@@ -186,7 +186,7 @@ void APGBWorld_Demo::initSceneMultibody()
 				color = { 0.74,0.83, 0.94 };
 				break;
 			}
-			GBBody* Box = simulation.createBody();
+			GBBody* Box = simulation.createBody(5.0F);
 			GBEdge edges[4];
 			GBBoxCollider bc({ 1.0,1.0,1.0 });
 			for (int i = 0; i < 6; i++)
@@ -263,6 +263,7 @@ void APGBWorld_Demo::initSceneBoxStack()
 	shootCount = 10;
 
 	sceneEnum = SCENE_BOX;
+	doUpdateCamera = true;
 }
 
 void APGBWorld_Demo::initSceneFPS()
@@ -272,6 +273,10 @@ void APGBWorld_Demo::initSceneFPS()
 	setRenderableData(pPlayerCap, { 1,1,1 }, true, true);
 	pPlayerBody->isKinematic = true;
 	pPlayerBody->transform.position = { 0,0,5 };
+
+	GBBody* pBody = simulation.createBody();
+	GBSphereCollider* pSphere = simulation.attachSphereCollider(pBody, 0.2f);
+	
 
 	sceneEnum = SCENE_FPS;
 	doUpdateCamera = false;
@@ -287,7 +292,8 @@ void APGBWorld_Demo::updateSceneMultibody()
 }
 void APGBWorld_Demo::updateSceneFPS(float dt)
 {
+
 	moveCamera(dt, false);
 	movePosition(dt, pPlayerBody->transform.position, 10.0f);
-	setCameraPosition(pPlayerBody->transform.position);
+	setCameraPosition(pPlayerBody->transform.position + GBVector3(0,0,1));
 }
