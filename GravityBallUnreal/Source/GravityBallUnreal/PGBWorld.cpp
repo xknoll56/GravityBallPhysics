@@ -1700,8 +1700,8 @@ void APGBWorld::setCameraPosition(const GBVector3& position)
 
 void APGBWorld::extractCameraForwardAndRight(GBVector3& outRight, GBVector3& outForward)
 {
-	outRight = toGBVector(CameraComponent->GetRightVector());
-	outForward = toGBVector(CameraComponent->GetForwardVector());
+	outRight = toGBVector(CameraComponent->GetRightVector()).normalized();
+	outForward = toGBVector(CameraComponent->GetForwardVector()).normalized();
 }
 
 bool APGBWorld::GetHeight(int32 X, int32 Y, float& outHeight)

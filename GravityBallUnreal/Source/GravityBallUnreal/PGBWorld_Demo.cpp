@@ -308,11 +308,11 @@ void APGBWorld_Demo::updateSceneFPS(float dt)
 	GBVector3 forward, right;
 	extractCameraForwardAndRight(right, forward);
 	forward;
-	int notPlayer = ~pPlayerBody->mask;
 	GBRay ray;
 	if (simulation.raycast(cameraPos + forward, forward, ray, 100.0f, 1))
 	{
-		drawLine(GetWorld(), cameraPos + 100.0f * forward + 100.0f * right, ray.position, 10.0f);
+		drawLine(GetWorld(), cameraPos + right+ forward, ray.position, 0.1f);
+		drawPoint(GetWorld(), ray.position, 6.0f, FColor::Emerald);
 	}
 }
 
