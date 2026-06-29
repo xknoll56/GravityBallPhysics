@@ -278,8 +278,8 @@ void APGBWorld_Demo::initSceneFPS()
 	setRenderableData(pPlayerCap, { 1,1,1 }, true, false);
 	pPlayerBody->isKinematic = true;
 	pPlayerBody->transform.position = { 0,0,5 };
-	pPlayerBody->layer = 1<<1;
-	pPlayerBody->mask = 100;
+	pPlayerBody->layer = 1 << 1;
+	pPlayerBody->mask = 1 | (1 << 1);
 
 	GBBody* pBody = simulation.createBody();
 	GBSphereCollider* pSphere = simulation.attachSphereCollider(pBody, 0.2f);
@@ -312,7 +312,7 @@ void APGBWorld_Demo::updateSceneFPS(float dt)
 	GBRay ray;
 	if (simulation.raycast(cameraPos + forward, forward, ray, 100.0f, 1))
 	{
-		drawLine(GetWorld(), cameraPos + 100.0f*forward + 100.0f*right, ray.position, 10.0f);
+		drawLine(GetWorld(), cameraPos + 100.0f * forward + 100.0f * right, ray.position, 10.0f);
 	}
 }
 
