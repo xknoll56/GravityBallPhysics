@@ -10,7 +10,8 @@ enum SceneEnumerated
 {
 	SCENE_BOX = 0,
 	SCENE_MULTIBODY = 1,
-	SCENE_FPS
+	SCENE_FPS,
+	SCENE_RAGDOLL
 };
 
 /**
@@ -36,9 +37,14 @@ public:
 
 
 	void initSceneBoxStack();
-	void initSceneMultibody();
-	void initSceneFPS();
 	void updateSceneBoxStack();
+
+	void initSceneMultibody();
 	void updateSceneMultibody();
+
+	void initSceneFPS();
 	void updateSceneFPS(float dt);
+
+	void initSceneRagdoll();
+	void updateSceneRagdoll(float dt);
 };

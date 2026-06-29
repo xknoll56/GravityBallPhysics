@@ -179,6 +179,7 @@ public:
 
 	void setCameraTransform(const GBVector3& position, const GBQuaternion& rotation = GBQuaternion());
 	void setCameraPosition(const GBVector3& position);
+	void extractCameraForwardAndRight(GBVector3& outRight, GBVector3& outForward);
 
 	// Procedural mesh component
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Mesh")

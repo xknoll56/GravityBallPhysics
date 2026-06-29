@@ -1698,6 +1698,12 @@ void APGBWorld::setCameraPosition(const GBVector3& position)
 	CameraComponent->SetWorldLocation(UnrealPos);
 }
 
+void APGBWorld::extractCameraForwardAndRight(GBVector3& outRight, GBVector3& outForward)
+{
+	outRight = toGBVector(CameraComponent->GetRightVector());
+	outForward = toGBVector(CameraComponent->GetForwardVector());
+}
+
 bool APGBWorld::GetHeight(int32 X, int32 Y, float& outHeight)
 {
 	outHeight = FMath::PerlinNoise2D(FVector2D(X * 0.1f, Y * 0.1f));
