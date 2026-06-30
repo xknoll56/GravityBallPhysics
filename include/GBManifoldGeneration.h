@@ -1408,14 +1408,13 @@ struct GBManifoldGeneration
 		if (GBContactSphereBox(sphere, box, c))
 		{
 			outManifold.addContact(c);
+			if (GBDot(outManifold.normal, sphere.transform.position - box.transform.position) > 0.0f)
+				outManifold.normal = -outManifold.normal;
 			outManifold.pReference = box.pBody;
 			outManifold.pIncident = sphere.pBody;
 			outManifold.setContactColliders((GBCollider*)&sphere, (GBCollider*)&box);
 			outManifold.separation = c.distance;
 			outManifold.normal = c.normal;
-
-			outManifold.alignNormalWithIncident();
-			outManifold.alignContactsWithNormal();
 			return true;
 		}
 		return false;
