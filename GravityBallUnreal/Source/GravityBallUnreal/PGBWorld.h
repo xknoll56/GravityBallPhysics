@@ -38,11 +38,6 @@ struct BodyTag
 	}
 };
 
-enum SceneEnumerated
-{
-	SCENE_BOX = 0,
-	SCENE_MULTIBODY = 1
-};
 
 UCLASS()
 class GRAVITYBALLUNREAL_API APGBWorld : public APawn
@@ -67,7 +62,7 @@ public:
 	// Called to bind functionality to input
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 
-	void moveCamera(float deltaTime);
+	void moveCamera(float deltaTime, bool doMovePosition = true);
 	void movePosition(float deltaTime, GBVector3& outPosition, float speed = 1.0f);
 
 	static void drawAABB(UWorld* World, GBAABB aabb, FColor color = FColor::Green, float thickness = 2.0f);
@@ -112,11 +107,6 @@ public:
 	void followCamera(UWorld* world, GBBody& body);
 	GBBody* getBodyByName(UWorld* world, std::string name);
 	std::vector<GBBody*> getBodiesByTag(UWorld* world, std::string tag);
-	SceneEnumerated sceneEnum;
-	void initSceneBoxStack();
-	void initSceneMultibody();
-	void updateSceneBoxStack();
-	void updateSceneMultibody();
 
 	static FVector toFVector(GBVector3 v, bool scale = true);
 	static FQuat toFQuat(const GBQuaternion& q);
@@ -189,6 +179,7 @@ public:
 
 	void setCameraTransform(const GBVector3& position, const GBQuaternion& rotation = GBQuaternion());
 	void setCameraPosition(const GBVector3& position);
+	void extractCameraForwardAndRight(GBVector3& outRight, GBVector3& outForward, GBVector3& outUp);
 
 	// Procedural mesh component
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Mesh")

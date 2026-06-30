@@ -817,6 +817,7 @@ struct GBSimulation
 					omegaDesired * blend;
 			}
 
+			// The friction for balls only needs to be a bit higher than boxes to slow it down from spining
 			float frictionCoeff = body.dynamicFriction;
 			body.velocity -= vTangent * frictionCoeff * dt;
 
