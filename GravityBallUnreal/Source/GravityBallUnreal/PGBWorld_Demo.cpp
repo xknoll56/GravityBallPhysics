@@ -259,7 +259,7 @@ void APGBWorld_Demo::initSceneBoxStack()
 		shootableBody = simulation.createBody();
 		shootableBody->transform.position = { -25.0f,-10.0f + 2.0f * i,0.5f };
 		GBSphereCollider* pSphere = simulation.attachSphereCollider(shootableBody, 0.5f + (i * 0.1f) * 0.75);
-		pSphere->pData = new RenderableCollider({ 0.1f * (i % 2),0.76f * (i + 1 % 2), 0.92f });
+		pSphere->pData = new RenderableCollider({ 0.1f * (i % 2),0.76f * (i + 1 % 2), 0.92f }, false, true);
 		shootableBody->setMass(5.0f * pSphere->volume());
 		shootStack[i] = shootableBody;
 	}
@@ -296,7 +296,10 @@ void APGBWorld_Demo::initSceneFPS()
 }
 void APGBWorld_Demo::updateSceneBoxStack()
 {
-
+	if (shootableBody->frameManifold.numContacts > 0)
+	{
+		drawManifold(GetWorld(), shootableBody->frameManifold);
+	}
 }
 void APGBWorld_Demo::updateSceneMultibody()
 {
