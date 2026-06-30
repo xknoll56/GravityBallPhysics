@@ -630,9 +630,10 @@ struct GBSimulation
 
 			if (canTreatAsStatic && (!A.isKinematic || !B.isKinematic))
 			{
+				float relSpeed = vRel.lengthSquared();
 				float upness = GBDot(GBVector3::up(), m.normal);
 				const static float stackModifier = 1.0f;
-				if (GBAbs(GBAbs(vn) < staticManifoldThreshold * stackModifier && upness > slopeRequirement))
+				if (GBAbs(GBAbs(vn) < staticManifoldThreshold * stackModifier && upness > slopeRequirement && relSpeed < 1.0f))
 				{
 					if (bodyIsPureColliderType(*m.pIncident, ColliderType::Sphere) && !bodyIsPureColliderType(*m.pReference, ColliderType::Sphere))
 					{
@@ -757,18 +758,13 @@ struct GBSimulation
 			return;
 
 		const float restitution = body.restitution;
-		const static float restingThreshold = 1.0f;
+		const static float restingThreshold = 0.05f;
 		const float rollingThreshold = 1.0f; // threshold for rolling without slip
 		const float cornerPushStrength = 0.05f;
 		const float restitutionThreshold = 0.5f; // CHANGE #2
 
 		const GBContact& c = manifold.contacts[0];
 
-		float flatness = GBDot(c.normal, GBVector3::up());
-		const static float minFlat = 0.75f;
-		bool notRestable = false;
-		if (flatness < minFlat)
-			notRestable = true;
 
 		GBVector3 n = c.normal;
 		GBVector3 r = c.position - body.transform.position;
@@ -779,7 +775,7 @@ struct GBSimulation
 		float vn = GBDot(vRel, n);
 
 		// --- Collision impulse ---
-		if (vn < -restingThreshold || notRestable)
+		if (vn < -restingThreshold)
 		{
 			if (GBAbs(vn) > wakeThreshold && manifold.pReference && manifold.pReference->isMovable())
 				manifold.pReference->wakeIsland();
