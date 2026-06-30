@@ -630,9 +630,10 @@ struct GBSimulation
 
 			if (canTreatAsStatic && (!A.isKinematic || !B.isKinematic))
 			{
+				float relSpeed = vRel.lengthSquared();
 				float upness = GBDot(GBVector3::up(), m.normal);
 				const static float stackModifier = 1.0f;
-				if (GBAbs(GBAbs(vn) < staticManifoldThreshold * stackModifier && upness > slopeRequirement))
+				if (GBAbs(GBAbs(vn) < staticManifoldThreshold * stackModifier && upness > slopeRequirement && relSpeed < 1.0f))
 				{
 					if (bodyIsPureColliderType(*m.pIncident, ColliderType::Sphere) && !bodyIsPureColliderType(*m.pReference, ColliderType::Sphere))
 					{
