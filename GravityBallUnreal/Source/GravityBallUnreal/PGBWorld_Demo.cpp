@@ -60,7 +60,7 @@ void APGBWorld_Demo::initSceneMultibody()
 
 	// --- G ---
 	{
-		GBBody* C = simulation.createBody(5.0f);
+		GBBody* C = simulation.createBody(2.0f);
 
 		float thickness = 0.25f;
 		float radius = 1.0f;
@@ -110,7 +110,7 @@ void APGBWorld_Demo::initSceneMultibody()
 
 	// --- B ---
 	{
-		GBBody* B = simulation.createBody(5.0f);
+		GBBody* B = simulation.createBody(2.0f);
 
 		float thickness = 0.25f;
 		float radius = 0.80f;
@@ -283,11 +283,16 @@ void APGBWorld_Demo::initSceneFPS()
 
 	GBBody* pBody = simulation.createBody();
 	GBSphereCollider* pSphere = simulation.attachSphereCollider(pBody, 0.2f);
-	
+	shootableBody = pBody;
+	shootStack[0] = pBody;
+	shootCount = 1;
+	pBody->layer = 1;
+	pBody->mask = 1;
 
 	sceneEnum = SCENE_FPS;
 	doUpdateCamera = false;
 	wasdMoveBindings = true;
+	doDrawAllPhysicsColliders = true;
 }
 void APGBWorld_Demo::updateSceneBoxStack()
 {
@@ -305,9 +310,9 @@ void APGBWorld_Demo::updateSceneFPS(float dt)
 
 	GBVector3 cameraPos = pPlayerBody->transform.position + GBVector3(0, 0, 1);
 	setCameraPosition(cameraPos);
-	GBVector3 forward, right;
-	extractCameraForwardAndRight(right, forward);
-	forward;
+	GBVector3 forward, right, up;
+	extractCameraForwardAndRight(right, forward, up);
+	GBQuaternion rot = GBQuaternion::fromAxes(forward, right, up);
 	GBRay ray;
 	if (simulation.raycast(cameraPos + forward, forward, ray, 100.0f, 1))
 	{

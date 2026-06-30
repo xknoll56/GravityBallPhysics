@@ -1698,10 +1698,11 @@ void APGBWorld::setCameraPosition(const GBVector3& position)
 	CameraComponent->SetWorldLocation(UnrealPos);
 }
 
-void APGBWorld::extractCameraForwardAndRight(GBVector3& outRight, GBVector3& outForward)
+void APGBWorld::extractCameraForwardAndRight(GBVector3& outRight, GBVector3& outForward, GBVector3& outUp)
 {
 	outRight = toGBVector(CameraComponent->GetRightVector()).normalized();
 	outForward = toGBVector(CameraComponent->GetForwardVector()).normalized();
+	outUp = toGBVector(CameraComponent->GetUpVector()).normalized();
 }
 
 bool APGBWorld::GetHeight(int32 X, int32 Y, float& outHeight)
