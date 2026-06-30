@@ -780,7 +780,7 @@ struct GBSimulation
 		float vn = GBDot(vRel, n);
 
 		// --- Collision impulse ---
-		if (vn < -restingThreshold || notRestable)
+		if (vn < -restingThreshold || !notRestable)
 		{
 			if (GBAbs(vn) > wakeThreshold && manifold.pReference && manifold.pReference->isMovable())
 				manifold.pReference->wakeIsland();
