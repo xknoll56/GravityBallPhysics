@@ -319,6 +319,11 @@ void APGBWorld_Demo::updateSceneFPS(float dt)
 		drawLine(GetWorld(), cameraPos + right+ forward, ray.position, 0.1f);
 		drawPoint(GetWorld(), ray.position, 6.0f, FColor::Emerald);
 	}
+
+	if (shootableBody->frameManifold.numContacts > 0)
+	{
+		drawManifold(GetWorld(), shootableBody->frameManifold);
+	}
 }
 
 void APGBWorld_Demo::initSceneRagdoll()
