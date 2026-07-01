@@ -20,8 +20,9 @@ struct RenderableCollider
 	bool doRender;
 	bool ignoreSpawn;
 	std::string name;
-	RenderableCollider(GBVector3 color, bool translucent = false, bool drawWireFrame = false, bool doRender = true, bool ignoreSpawn = false, std::string name = "") :
-		color(color), translucent(translucent), drawWireFrame(drawWireFrame), doRender(doRender), ignoreSpawn(ignoreSpawn), name(name)
+	bool canGrab;
+	RenderableCollider(GBVector3 color, bool translucent = false, bool drawWireFrame = false, bool doRender = true, bool ignoreSpawn = false, std::string name = "", bool canGrab = false) :
+		color(color), translucent(translucent), drawWireFrame(drawWireFrame), doRender(doRender), ignoreSpawn(ignoreSpawn), name(name), canGrab(canGrab)
 	{
 
 	}

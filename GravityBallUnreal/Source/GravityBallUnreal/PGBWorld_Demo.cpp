@@ -37,7 +37,11 @@ void APGBWorld_Demo::BeginPlay()
 
 void APGBWorld_Demo::Tick(float DeltaTime)
 {
-
+	if (!didRunPostInit)
+	{
+		postInit();
+		didRunPostInit = true;
+	}
 	switch (sceneEnum)
 	{
 	case SCENE_BOX:
@@ -289,6 +293,7 @@ void APGBWorld_Demo::initSceneFPS()
 	pBody->layer = 1;
 	pBody->mask = 1;
 
+
 	sceneEnum = SCENE_FPS;
 	doUpdateCamera = false;
 	wasdMoveBindings = true;
@@ -318,11 +323,29 @@ void APGBWorld_Demo::updateSceneFPS(float dt)
 	{
 		drawLine(GetWorld(), cameraPos + right+ forward, ray.position, 0.1f);
 		drawPoint(GetWorld(), ray.position, 6.0f, FColor::Emerald);
+		if (ray.pIncident && ray.distance<5.0f)
+		{
+			RenderableCollider* prc = (RenderableCollider*)ray.pIncident->pData;
+			if (prc->canGrab)
+			{
+				GBBody* pBody = ray.pIncident->pBody;
+				//pBody
+			}
+		}
 	}
+}
 
-	if (shootableBody->frameManifold.numContacts > 0)
+void APGBWorld_Demo::postInit()
+{
+	std::vector<GBBody*> crates = getBodiesByTag(GetWorld(), "canGrab");
+	for (GBBody* c : crates)
 	{
-		drawManifold(GetWorld(), shootableBody->frameManifold);
+		for (GBCollider* pCol : c->colliders)
+		{
+			RenderableCollider* prc = (RenderableCollider*)pCol->pData;
+			if (prc)
+				prc->canGrab = true;
+		}
 	}
 }
 

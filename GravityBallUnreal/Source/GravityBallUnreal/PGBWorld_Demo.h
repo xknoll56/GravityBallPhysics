@@ -28,6 +28,8 @@ protected:
 	virtual void BeginPlay() override;
 	SceneEnumerated sceneEnum;
 
+	bool didRunPostInit = false;
+
 	GBBody* pPlayerBody = nullptr;
 
 public:
@@ -47,4 +49,7 @@ public:
 
 	void initSceneRagdoll();
 	void updateSceneRagdoll(float dt);
+
+
+	void postInit();
 };
