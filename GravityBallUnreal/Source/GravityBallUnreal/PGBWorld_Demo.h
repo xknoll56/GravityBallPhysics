@@ -28,6 +28,8 @@ protected:
 	virtual void BeginPlay() override;
 	SceneEnumerated sceneEnum;
 
+	bool didRunPostInit = false;
+
 	GBBody* pPlayerBody = nullptr;
 
 public:
@@ -44,7 +46,20 @@ public:
 
 	void initSceneFPS();
 	void updateSceneFPS(float dt);
+	void onBulletEnter(const GBManifold& manifold, GBBody* pOther);
+	void onTriggerEnter(const GBManifold& manifold, GBBody* pOther);
+	struct Door
+	{
+		bool isActivated;
+		GBVector3 initPos;
+	};
+	std::unordered_map<GBBody*, Door> doors;
+	void updateDoors(float dt);
+	GBBody* grabbedBody = nullptr;
 
 	void initSceneRagdoll();
 	void updateSceneRagdoll(float dt);
+
+
+	void postInit();
 };

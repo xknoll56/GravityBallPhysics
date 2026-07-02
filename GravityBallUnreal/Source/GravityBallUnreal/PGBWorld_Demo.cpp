@@ -37,7 +37,11 @@ void APGBWorld_Demo::BeginPlay()
 
 void APGBWorld_Demo::Tick(float DeltaTime)
 {
-
+	if (!didRunPostInit)
+	{
+		postInit();
+		didRunPostInit = true;
+	}
 	switch (sceneEnum)
 	{
 	case SCENE_BOX:
@@ -259,7 +263,7 @@ void APGBWorld_Demo::initSceneBoxStack()
 		shootableBody = simulation.createBody();
 		shootableBody->transform.position = { -25.0f,-10.0f + 2.0f * i,0.5f };
 		GBSphereCollider* pSphere = simulation.attachSphereCollider(shootableBody, 0.5f + (i * 0.1f) * 0.75);
-		pSphere->pData = new RenderableCollider({ 0.1f * (i % 2),0.76f * (i + 1 % 2), 0.92f }, false, true);
+		pSphere->pData = new RenderableCollider({ 0.1f * (i % 2),0.76f * (i + 1 % 2), 0.92f });
 		shootableBody->setMass(5.0f * pSphere->volume());
 		shootStack[i] = shootableBody;
 	}
@@ -271,23 +275,70 @@ void APGBWorld_Demo::initSceneBoxStack()
 	doUpdateCamera = true;
 }
 
+void APGBWorld_Demo::onBulletEnter(const GBManifold& manifold, GBBody* pOther)
+{
+	manifold.getOtherBody(pOther)->transform.position = { 2000, 2000, 2000};
+	manifold.getOtherBody(pOther)->updateColliders();
+}
+
+void APGBWorld_Demo::onTriggerEnter(const GBManifold& manifold, GBBody* pOther)
+{
+	if (pOther == shootableBody)
+	{
+		for (auto& door : doors)
+		{
+			if(!door.second.isActivated)
+				door.second.isActivated = true;
+			else
+			{
+				door.first->transform.position = door.second.initPos;
+				door.second.isActivated = false;
+			}
+		}
+	}
+}
+
+void APGBWorld_Demo::updateDoors(float dt)
+{
+	for (auto& door : doors)
+	{
+		if (door.second.isActivated)
+		{
+			const static float activationDistance = 10.0f;
+			if (door.first->transform.position.z - door.second.initPos.z < activationDistance)
+				door.first->transform.position += {0, 0, dt};
+			else
+				door.second.isActivated = false;
+		}
+	}
+}
+
 void APGBWorld_Demo::initSceneFPS()
 {
 	pPlayerBody = simulation.createBody();
 	GBCapsuleCollider* pPlayerCap = simulation.attachCapsuleCollider(pPlayerBody, 0.5f, 1.0f);
 	setRenderableData(pPlayerCap, { 1,1,1 }, true, false);
 	pPlayerBody->isKinematic = true;
-	pPlayerBody->transform.position = { 0,0,5 };
+	pPlayerBody->transform.position = toGBVector(GetActorLocation());
+	pPlayerBody->transform.rotation = toGBQuat(GetActorQuat());
 	pPlayerBody->layer = 1 << 1;
 	pPlayerBody->mask = 1 | (1 << 1);
 
 	GBBody* pBody = simulation.createBody();
-	GBSphereCollider* pSphere = simulation.attachSphereCollider(pBody, 0.2f);
+	GBSphereCollider* pSphere = simulation.attachSphereCollider(pBody, 0.1f);
 	shootableBody = pBody;
 	shootStack[0] = pBody;
+	pBody->useGravity = false;
 	shootCount = 1;
 	pBody->layer = 1;
 	pBody->mask = 1;
+	shootSpeed = 5000;
+	std::function<void(const GBManifold&, GBBody*)> fnEnter =
+		[this](const GBManifold& m, GBBody* b)
+		{
+			onBulletEnter(m, b);
+		};
+	simulation.addEnterListener(pBody, fnEnter);
 
 	sceneEnum = SCENE_FPS;
 	doUpdateCamera = false;
@@ -296,10 +347,7 @@ void APGBWorld_Demo::initSceneFPS()
 }
 void APGBWorld_Demo::updateSceneBoxStack()
 {
-	if (shootableBody->frameManifold.numContacts > 0)
-	{
-		drawManifold(GetWorld(), shootableBody->frameManifold);
-	}
+
 }
 void APGBWorld_Demo::updateSceneMultibody()
 {
@@ -307,26 +355,92 @@ void APGBWorld_Demo::updateSceneMultibody()
 }
 void APGBWorld_Demo::updateSceneFPS(float dt)
 {
+	updateDoors(dt);
 
 	moveCamera(dt, false);
 	movePosition(dt, pPlayerBody->transform.position, 10.0f);
 
-	GBVector3 cameraPos = pPlayerBody->transform.position + GBVector3(0, 0, 1);
-	setCameraPosition(cameraPos);
-	GBVector3 forward, right, up;
-	extractCameraForwardAndRight(right, forward, up);
-	GBQuaternion rot = GBQuaternion::fromAxes(forward, right, up);
-	GBRay ray;
-	if (simulation.raycast(cameraPos + forward, forward, ray, 100.0f, 1))
+
+	// Get the player controller
+	if (APlayerController* PC = GetWorld()->GetFirstPlayerController())
 	{
-		drawLine(GetWorld(), cameraPos + right+ forward, ray.position, 0.1f);
-		drawPoint(GetWorld(), ray.position, 6.0f, FColor::Emerald);
+
+		GBVector3 cameraPos = pPlayerBody->transform.position + GBVector3(0, 0, 1);
+		setCameraPosition(cameraPos);
+		GBVector3 forward, right, up;
+		extractCameraForwardAndRight(right, forward, up);
+		GBQuaternion rot = GBQuaternion::fromAxes(forward, right, up);
+		GBRay ray;
+		GBBoxCollider gun = GBBoxCollider({ 0.5f, 0.2f,0.2f });
+		GBBoxCollider gunHandle = GBBoxCollider({ 0.02f, 0.2f,0.45f });
+		gun.transform.rotation = rot;
+		gunHandle.transform.rotation = rot;
+		gun.transform.position = cameraPos + right + forward * 2.0f;
+		gunHandle.transform.position = cameraPos + right + forward * 1.5f + up * -0.25f;
+		drawBox(GetWorld(), gun, FColor::Cyan);
+		drawBox(GetWorld(), gunHandle, FColor::Emerald);
+		if (simulation.raycast(cameraPos, forward, ray, 100.0f, 1))
+		{
+			drawLine(GetWorld(), cameraPos + right + forward * 2.0f, ray.position, 0.1f);
+			drawPoint(GetWorld(), ray.position, 6.0f, FColor::Emerald);
+			if (ray.pIncident && ray.distance < 5.0f)
+			{
+				RenderableCollider* prc = (RenderableCollider*)ray.pIncident->pData;
+				if (prc->canGrab)
+				{
+					GBBody* pBody = ray.pIncident->pBody;
+					grabbedBody = pBody;
+				}
+			}
+		}
+	}
+}
+
+void APGBWorld_Demo::postInit()
+{
+
+	switch (sceneEnum)
+	{
+	case SCENE_FPS:
+	{
+		std::vector<GBBody*> bs = getBodiesByTag(GetWorld(), "canGrab");
+		for (GBBody* c : bs)
+		{
+			for (GBCollider* pCol : c->colliders)
+			{
+				RenderableCollider* prc = (RenderableCollider*)pCol->pData;
+				if (prc)
+					prc->canGrab = true;
+			}
+		}
+
+		bs.clear();
+		bs = getBodiesByTag(GetWorld(), "isTrigger");
+		for (GBBody* c : bs)
+		{
+			std::function<void(const GBManifold&, GBBody*)> fnEnter =
+				[this](const GBManifold& m, GBBody* b)
+				{
+					onTriggerEnter(m, b);
+				};
+			simulation.addEnterListener(c, fnEnter);
+		}
+
+		bs.clear();
+		bs = getBodiesByTag(GetWorld(), "isDoor");
+
+		for (GBBody* db : bs)
+		{
+			std::pair<GBBody*, Door> pair;
+			pair.first = db;
+			pair.second.isActivated = false;
+			pair.second.initPos = db->transform.position;
+			doors.insert(pair);
+		}
+	}
+		break;
 	}
 
-	if (shootableBody->frameManifold.numContacts > 0)
-	{
-		drawManifold(GetWorld(), shootableBody->frameManifold);
-	}
 }
 
 void APGBWorld_Demo::initSceneRagdoll()
