@@ -46,6 +46,7 @@ public:
 
 	void initSceneFPS();
 	void updateSceneFPS(float dt);
+	void onBulletEnter(const GBManifold& manifold, GBBody* pOther);
 
 	void initSceneRagdoll();
 	void updateSceneRagdoll(float dt);

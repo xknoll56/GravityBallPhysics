@@ -275,6 +275,12 @@ void APGBWorld_Demo::initSceneBoxStack()
 	doUpdateCamera = true;
 }
 
+void APGBWorld_Demo::onBulletEnter(const GBManifold& manifold, GBBody* pOther)
+{
+	manifold.getOtherBody(pOther)->transform.position = { 2000, 2000, 2000};
+	manifold.getOtherBody(pOther)->updateColliders();
+}
+
 void APGBWorld_Demo::initSceneFPS()
 {
 	pPlayerBody = simulation.createBody();
@@ -289,10 +295,17 @@ void APGBWorld_Demo::initSceneFPS()
 	GBSphereCollider* pSphere = simulation.attachSphereCollider(pBody, 0.2f);
 	shootableBody = pBody;
 	shootStack[0] = pBody;
+	pBody->useGravity = false;
 	shootCount = 1;
 	pBody->layer = 1;
 	pBody->mask = 1;
-
+	shootSpeed = 4000;
+	std::function<void(const GBManifold&, GBBody*)> fnEnter =
+		[this](const GBManifold& m, GBBody* b)
+		{
+			onBulletEnter(m, b);
+		};
+	simulation.addEnterListener(pBody, fnEnter);
 
 	sceneEnum = SCENE_FPS;
 	doUpdateCamera = false;
@@ -319,9 +332,17 @@ void APGBWorld_Demo::updateSceneFPS(float dt)
 	extractCameraForwardAndRight(right, forward, up);
 	GBQuaternion rot = GBQuaternion::fromAxes(forward, right, up);
 	GBRay ray;
-	if (simulation.raycast(cameraPos + forward, forward, ray, 100.0f, 1))
+	GBBoxCollider gun = GBBoxCollider({ 0.5f, 0.2f,0.2f });
+	GBBoxCollider gunHandle = GBBoxCollider({ 0.02f, 0.2f,0.45f });
+	gun.transform.rotation = rot;
+	gunHandle.transform.rotation = rot;
+	gun.transform.position = cameraPos + right + forward * 2.0f;
+	gunHandle.transform.position = cameraPos + right + forward * 1.5f + up * -0.25f;
+	drawBox(GetWorld(), gun, FColor::Cyan);
+	drawBox(GetWorld(), gunHandle, FColor::Emerald);
+	if (simulation.raycast(cameraPos, forward, ray, 100.0f, 1))
 	{
-		drawLine(GetWorld(), cameraPos + right+ forward, ray.position, 0.1f);
+		drawLine(GetWorld(), cameraPos + right+ forward*2.0f, ray.position, 0.1f);
 		drawPoint(GetWorld(), ray.position, 6.0f, FColor::Emerald);
 		if (ray.pIncident && ray.distance<5.0f)
 		{

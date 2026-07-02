@@ -154,6 +154,22 @@ struct GBSimulation
 		exitListeners[id].push_back(std::move(fn));
 	}
 
+	void addEnterListener(GBBody* pBody, std::function<void(const GBManifold&, GBBody*)> fn)
+	{
+		enterListeners[pBody->id].push_back(std::move(fn));
+	}
+
+	void addStayListener(GBBody* pBody, std::function<void(const GBManifold&, GBBody*)> fn)
+	{
+		stayListeners[pBody->id].push_back(std::move(fn));
+	}
+
+	void addExitListener(GBBody* pBody, std::function<void(GBBody*)> fn)
+	{
+		exitListeners[pBody->id].push_back(std::move(fn));
+	}
+
+
 
 	static GBSimulation simulationWithSingleGrid(GBVector3 anchor = GBVector3(-50, -50, -25), float cellSize = 1.0f, int cellsX = 100, int cellsY = 100, int cellsZ = 50)
 	{
