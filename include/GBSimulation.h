@@ -456,7 +456,7 @@ struct GBSimulation
 			up * (pCap->height * 0.5f + pCap->radius));
 	}
 
-	GBBody* createHumanoidRagdoll(GBVector3 initPos = {0,0,10})
+	GBBody* createHumanoidRagdoll(GBVector3 initPos = { 0,0,10 })
 	{
 		GBBody* body = createBody();
 		body->transform.position = initPos;
@@ -539,7 +539,6 @@ struct GBSimulation
 
 		return body;
 	}
-
 
 	GBBoxCollider* attachBoxCollider(GBBody* pBody, GBVector3 halfExtents, GBTransform localTransform = GBTransform(), bool insertToGrid = true)
 	{
@@ -880,7 +879,7 @@ struct GBSimulation
 		float vn = GBDot(vRel, n);
 
 		// --- Collision impulse ---
-		if (vn < -restingThreshold || !notRestable)
+		if (vn < 0.0f)
 		{
 			if (GBAbs(vn) > wakeThreshold && manifold.pReference && manifold.pReference->isMovable())
 				manifold.pReference->wakeIsland();
@@ -895,8 +894,6 @@ struct GBSimulation
 
 			body.velocity += n * jn;
 			body.angularVelocity += body.invInertia * GBCross(r, n * jn);
-
-			return;
 		}
 
 		// --- Rolling without slip ---

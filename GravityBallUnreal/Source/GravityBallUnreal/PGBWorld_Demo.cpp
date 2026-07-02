@@ -450,10 +450,13 @@ void APGBWorld_Demo::initSceneRagdoll()
 {
 	GBBody* ragdoll = simulation.createHumanoidRagdoll();
 	ragdoll->transform.position = { 0,0,10 };
+	ragdoll->angularVelocity = { 1,1,1 };
 
 	ragdoll = simulation.createHumanoidRagdoll({ 0,-10,10 });
-
+	ragdoll->angularVelocity = { -1,1,-1 };
+	
 	ragdoll = simulation.createHumanoidRagdoll({ 0,10,10 });
+	ragdoll->angularVelocity = { 1,-1,1 };
 
 
 	FRandomStream randomStream(1030);
