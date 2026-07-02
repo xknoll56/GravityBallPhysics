@@ -451,6 +451,11 @@ void APGBWorld_Demo::initSceneRagdoll()
 	GBBody* ragdoll = simulation.createHumanoidRagdoll();
 	ragdoll->transform.position = { 0,0,10 };
 
+	ragdoll = simulation.createHumanoidRagdoll({ 0,-10,10 });
+
+	ragdoll = simulation.createHumanoidRagdoll({ 0,10,10 });
+
+
 	FRandomStream randomStream(1030);
 	for (GBCollider* pCol : simulation.colliders)
 	{

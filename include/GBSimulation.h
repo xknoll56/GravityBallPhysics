@@ -456,12 +456,10 @@ struct GBSimulation
 			up * (pCap->height * 0.5f + pCap->radius));
 	}
 
-	GBBody* createHumanoidRagdoll()
+	GBBody* createHumanoidRagdoll(GBVector3 initPos = {0,0,10})
 	{
 		GBBody* body = createBody();
-		body->transform.position = { 0,0,6 };
-		body->angularVelocity = { 100,10,10 };
-		body->velocity = { 10,10,10 };
+		body->transform.position = initPos;
 		GBCapsuleCollider* cc = attachCapsuleCollider(body, 0.25f, 0.8f);
 
 
