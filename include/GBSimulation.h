@@ -456,6 +456,92 @@ struct GBSimulation
 			up * (pCap->height * 0.5f + pCap->radius));
 	}
 
+	GBBody* createHumanoidRagdoll()
+	{
+		GBBody* body = createBody();
+		body->transform.position = { 0,0,6 };
+		body->angularVelocity = { 100,10,10 };
+		body->velocity = { 10,10,10 };
+		GBCapsuleCollider* cc = attachCapsuleCollider(body, 0.25f, 0.8f);
+
+
+		GBBody* arm1 = createBody();
+		GBCapsuleCollider* cc1 = attachCapsuleCollider(arm1, 0.1f, 0.45f);
+		arm1->transform.position = body->transform.position +
+			GBVector3::right() * (cc->radius + cc1->radius + cc1->height * 0.5f)
+			+ GBVector3::up() * 0.25f;
+		arm1->transform.rotate(GBQuaternion::fromAxisAngle({ 1,0,0 }, GB_PI * 0.5f));
+		arm1->updateColliders();
+
+
+		GBBody* arm11 = createBody();
+		GBCapsuleCollider* cc11 = attachCapsuleCollider(arm11, 0.1f, 0.45f);
+		arm11->transform.position = arm1->transform.position + GBVector3::right() * (cc1->height * 0.5f + cc1->radius + cc11->height * 0.5f + cc11->radius);
+		arm11->transform.rotate(GBQuaternion::fromAxisAngle({ 1,0,0 }, GB_PI * 0.5f));
+		arm11->updateColliders();
+
+
+		GBBody* arm2 = createBody();
+		GBCapsuleCollider* cc2 = attachCapsuleCollider(arm2, 0.1f, 0.45f);
+		arm2->transform.position = body->transform.position -
+			GBVector3::right() * (cc->radius + cc2->radius + cc2->height * 0.5f)
+			+ GBVector3::up() * 0.25f;
+		arm2->transform.rotate(GBQuaternion::fromAxisAngle({ 1,0,0 }, GB_PI * 0.5f));
+		arm2->updateColliders();
+
+		GBBody* arm22 = createBody();
+		GBCapsuleCollider* cc22 = attachCapsuleCollider(arm22, 0.1f, 0.45f);
+		arm22->transform.position = arm2->transform.position - GBVector3::right() * (cc2->height * 0.5f + cc2->radius + cc22->height * 0.5f + cc22->radius);
+		arm22->transform.rotate(GBQuaternion::fromAxisAngle({ 1,0,0 }, GB_PI * 0.5f));
+		arm22->updateColliders();
+
+
+		GBBody* leg = createBody();
+		GBCapsuleCollider* cc3 = attachCapsuleCollider(leg, 0.1f, 0.5f);
+		leg->transform.position = body->transform.position +
+			GBVector3::up() * (-cc->height * 0.5f - cc->radius - cc3->height * 0.5f - cc3->radius) +
+			GBVector3::right() * (cc3->radius);
+		leg->updateColliders();
+
+		GBBody* foot = createBody();
+		GBCapsuleCollider* cc33 = attachCapsuleCollider(foot, 0.1f, 0.5);
+		foot->transform.position = leg->transform.position +
+			GBVector3::up() * (-cc3->height * 0.5f - cc3->radius - cc33->height * 0.5f - cc33->radius);
+		foot->updateColliders();
+
+		GBBody* leg1 = createBody();
+		GBCapsuleCollider* cc4 = attachCapsuleCollider(leg1, 0.1f, 0.5);
+		leg1->transform.position = body->transform.position +
+			GBVector3::up() * (-cc->height * 0.5f - cc->radius - cc3->height * 0.5f - cc3->radius) +
+			GBVector3::left() * (cc3->radius);
+		leg1->updateColliders();
+
+		GBBody* foot1 = createBody();
+		GBCapsuleCollider* cc44 = attachCapsuleCollider(foot1, 0.1f, 0.5);
+		foot1->transform.position = leg1->transform.position +
+			GBVector3::up() * (-cc4->height * 0.5f - cc4->radius - cc44->height * 0.5f - cc44->radius);
+		foot1->updateColliders();
+
+		GBBody* head = createBody();
+		GBCapsuleCollider* cc5 = attachCapsuleCollider(head, 0.35f, 0.0f);
+		head->transform.position = body->transform.position +
+			GBVector3::up() * (cc->height * 0.5f + cc->radius + cc5->radius);
+		head->updateColliders();
+
+
+		GBBallJoint* s = attachCapsuleBallJoint(body, cc1);
+		s = attachCapsuleBallJoint(arm1, cc11);
+		s = attachCapsuleBallJoint(body, cc2);
+		s = attachCapsuleBallJoint(arm2, cc22);
+		s = attachCapsuleBallJoint(body, cc4);
+		s = attachCapsuleBallJoint(leg1, cc44);
+		s = attachCapsuleBallJoint(body, cc3);
+		s = attachCapsuleBallJoint(leg, cc33);
+		s = attachCapsuleBallJoint(body, cc5);
+
+		return body;
+	}
+
 
 	GBBoxCollider* attachBoxCollider(GBBody* pBody, GBVector3 halfExtents, GBTransform localTransform = GBTransform(), bool insertToGrid = true)
 	{
