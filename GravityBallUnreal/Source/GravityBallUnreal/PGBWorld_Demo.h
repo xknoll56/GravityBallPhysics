@@ -10,8 +10,9 @@ enum SceneEnumerated
 {
 	SCENE_BOX = 0,
 	SCENE_MULTIBODY = 1,
-	SCENE_FPS,
-	SCENE_RAGDOLL
+	SCENE_FPS = 2,
+	SCENE_RAGDOLL = 3,
+	SCENE_SPRINGJOINT = 4
 };
 
 /**
@@ -44,15 +45,15 @@ public:
 	void initSceneMultibody();
 	void updateSceneMultibody();
 
-	void initSceneFPS();
-	void updateSceneFPS(float dt);
-	void onBulletEnter(const GBManifold& manifold, GBBody* pOther);
-	void onTriggerEnter(const GBManifold& manifold, GBBody* pOther);
 	struct Door
 	{
 		bool isActivated;
 		GBVector3 initPos;
 	};
+	void initSceneFPS();
+	void updateSceneFPS(float dt);
+	void onBulletEnter(const GBManifold& manifold, GBBody* pOther);
+	void onTriggerEnter(const GBManifold& manifold, GBBody* pOther);
 	std::unordered_map<GBBody*, Door> doors;
 	void updateDoors(float dt);
 	GBBody* grabbedBody = nullptr;
@@ -60,6 +61,8 @@ public:
 	void initSceneRagdoll();
 	void updateSceneRagdoll(float dt);
 
+	void initSceneSpringJoint();
+	void updateSceneSpringJoint(float dt);
 
 	void postInit();
 };

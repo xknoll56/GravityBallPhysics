@@ -69,6 +69,66 @@ struct GBBallJoint
 	GBVector3 accumulatedImpulse; // optional warm starting
 };
 
+struct GBPath
+{
+	std::vector<GBVector3> points;
+	int currentTargetIndex = 0;
+
+	GBVector3 getTarget(GBVector3 position, float stopingDistance = 0.1f)
+	{
+		int numPoints = points.size();
+		if (currentTargetIndex <numPoints)
+		{
+			GBVector3 curTarget = points[currentTargetIndex];
+			float distance = (curTarget - position).length();
+			if (distance < stopingDistance)
+			{
+				currentTargetIndex = (currentTargetIndex + 1) % numPoints;
+			}
+			return points[currentTargetIndex];
+		}
+		return GBVector3::zero();
+	}
+};
+
+struct GBController
+{
+	GBBody* pBody = nullptr;
+	GBVector3 target = GBVector3::zero();
+	float maxSpeed = 1.0f;
+	float stoppingDistance = 0.1f;
+	float speedAcceleration = 500.0f;
+	GBPath path;
+
+
+	GBController(GBBody* pBody, GBVector3 target = GBVector3::zero(), float speed = 1.0f, float stoppingDistance = 0.1f):
+		pBody(pBody), target(target), maxSpeed(speed), stoppingDistance(stoppingDistance)
+	{
+		pBody->isKinematic = true;
+
+	}
+
+	virtual void updateVelocity(float dt)
+	{
+		if (path.points.size()>0)
+		{
+			target = path.getTarget(pBody->transform.position, stoppingDistance);
+		}
+		float dist = (target - pBody->transform.position).length();
+		if (dist > stoppingDistance)
+		{
+			pBody->velocity += (target - pBody->transform.position).normalized() * speedAcceleration * dt;
+			float speed2 = pBody->velocity.lengthSquared();
+			if (speed2 > maxSpeed*maxSpeed)
+			{
+				pBody->velocity = pBody->velocity.normalized() * maxSpeed;
+			}
+		}
+		else
+			pBody->velocity = GBVector3::zero();
+	}
+};
+
 struct GBSimulation
 {
 	//GBGrid grid;
@@ -83,6 +143,7 @@ struct GBSimulation
 	std::vector<std::unique_ptr<GBCloth>> cloths;
 	std::vector< std::unique_ptr<GBTriangle>> triangles;
 	std::vector< std::unique_ptr<GBTerrain>> terrains;
+	std::vector<std::unique_ptr<GBController>> controllers;
 	uint32_t idCount;
 	std::unordered_map<uint32_t, std::vector<std::function<void(const GBManifold& manifold, GBBody* pOther)>>> enterListeners;
 	std::unordered_map<uint32_t, std::vector<std::function<void(const GBManifold& manifold, GBBody* pOther)>>> stayListeners;
@@ -256,6 +317,15 @@ struct GBSimulation
 		return pTerrain;
 	}
 
+	GBController* createController(GBBody* pBody, GBVector3 target = GBVector3::zero(), float speed = 1.0f, float stoppingDistance = 0.1f)
+	{
+		if (pBody->isKinematic)
+		{
+			controllers.push_back(std::make_unique<GBController>(pBody, target, speed, stoppingDistance));
+			return controllers.back().get();
+		}
+		return nullptr;
+	}
 
 
 	GBTriangle* getTriangle(int index)
@@ -1826,6 +1896,12 @@ struct GBSimulation
 				if (!body->isSleeping && (body->useGravity))
 					body->addForce(gravity * body->mass);
 				body->update(interDeltaTime);
+			}
+
+			for (auto& controllerIt : controllers)
+			{
+				GBController* pController = controllerIt.get();
+				pController->updateVelocity(interDeltaTime);
 			}
 
 
