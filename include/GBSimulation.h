@@ -105,7 +105,7 @@ struct GBController
 		pBody(pBody), target(target), maxSpeed(speed), stoppingDistance(stoppingDistance)
 	{
 		pBody->isKinematic = true;
-
+		pBody->isSleeping = false;
 	}
 
 	virtual void updateVelocity(float dt)
@@ -972,7 +972,7 @@ struct GBSimulation
 		}
 
 		// --- Rolling without slip ---
-		if (fabs(vn) < rollingThreshold)
+		if (vn < 0.0f)
 		{
 			GBVector3 vTangent = vRel - n * vn;
 
@@ -2000,21 +2000,6 @@ struct GBSimulation
 									manifold.pIncident->addDynamicContact(manifold.pReference);
 									manifold.pReference->addDynamicContact(manifold.pIncident);
 								}
-
-								if (supportAdded)
-								{
-									const static float k = 25.0f;
-									if (manifold.pIncident->isKinematic)
-									{
-										GBVector3 error = manifold.pIncident->velocity.xyComponent() - manifold.pReference->velocity.xyComponent();
-										manifold.pReference->addForce(error * k);
-									}
-									if (manifold.pReference->isKinematic)
-									{
-										GBVector3 error = manifold.pReference->velocity.xyComponent() - manifold.pIncident->velocity.xyComponent();
-										manifold.pIncident->addForce(error * k);
-									}
-								}
 							}
 
 						}
@@ -2144,6 +2129,17 @@ struct GBSimulation
 
 				if (body->isAwake())
 					body->updateTransform(interDeltaTime);
+
+				if (body->isKinematic)
+				{
+					GBVector3 dp = body->transform.position - body->prevPosition;
+					for (GBBody* pBody : body->dynamicBodies)
+					{
+						pBody->transform.position += dp;
+					}
+
+
+				}
 
 
 				float speed = body->velocity.length();
