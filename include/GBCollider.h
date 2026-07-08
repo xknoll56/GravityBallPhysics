@@ -81,6 +81,30 @@ struct GBHit {
 		normal = transform.transformDirection(normal);
 	}
 
+	GBCollider* getOtherCollider(const GBCollider* pCol) const
+	{
+		if (pIncident && pReference)
+		{
+			if (pCol == pIncident)
+				return pReference;
+			else if (pCol == pReference)
+				return pIncident;
+		}
+		return nullptr;
+	}
+
+	GBBody* getOtherBody(const GBBody* pBody) const
+	{
+		if (pIncident && pReference)
+		{
+			if (pBody == pIncident->pBody)
+				return pReference->pBody;
+			else if (pBody == pReference->pBody)
+				return pIncident->pBody;
+		}
+		return nullptr;
+	}
+
 
 	GBVector3 getShapecastEndpoint(GBVector3 startPos, GBVector3 dir)
 	{
@@ -957,6 +981,13 @@ struct GBBody
 		}
 	}
 
+
+	void adoptVelocity(GBVector3 vel)
+	{
+		GBVector3 velNorm = vel.normalized();
+		float velMagComp = GBDot(velNorm, velocity);
+		velocity = velocity - velMagComp * velNorm + vel;
+	}
 
 	// Physics update (same as before, now clears forces automatically)
 	void update(float dt)

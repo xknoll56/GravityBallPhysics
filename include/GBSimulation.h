@@ -112,20 +112,38 @@ struct GBController
 	{
 		if (path.points.size()>0)
 		{
+			int index = path.currentTargetIndex;
 			target = path.getTarget(pBody->transform.position, stoppingDistance);
+			if (path.currentTargetIndex != index)
+				pBody->velocity = GBVector3::zero();
 		}
-		float dist = (target - pBody->transform.position).length();
+
+		GBVector3 toTarget = target - pBody->transform.position;
+		float dist = toTarget.length();
+
 		if (dist > stoppingDistance)
 		{
-			pBody->velocity += (target - pBody->transform.position).normalized() * speedAcceleration * dt;
-			float speed2 = pBody->velocity.lengthSquared();
-			if (speed2 > maxSpeed*maxSpeed)
-			{
-				pBody->velocity = pBody->velocity.normalized() * maxSpeed;
-			}
+			float slowRadius = 2.0f;
+
+			float desiredSpeed = maxSpeed;
+			if (dist < slowRadius)
+				desiredSpeed *= dist / slowRadius;
+
+			GBVector3 desiredVelocity = toTarget.normalized() * desiredSpeed;
+			GBVector3 steering = desiredVelocity - pBody->velocity;
+
+			float maxAccel = speedAcceleration * dt;
+			float steeringLength = steering.length();
+
+			if (steeringLength > maxAccel)
+				steering = steering / steeringLength * maxAccel;
+
+			pBody->velocity += steering;
 		}
 		else
+		{
 			pBody->velocity = GBVector3::zero();
+		}
 	}
 };
 
@@ -319,12 +337,8 @@ struct GBSimulation
 
 	GBController* createController(GBBody* pBody, GBVector3 target = GBVector3::zero(), float speed = 1.0f, float stoppingDistance = 0.1f)
 	{
-		if (pBody->isKinematic)
-		{
-			controllers.push_back(std::make_unique<GBController>(pBody, target, speed, stoppingDistance));
-			return controllers.back().get();
-		}
-		return nullptr;
+		controllers.push_back(std::make_unique<GBController>(pBody, target, speed, stoppingDistance));
+		return controllers.back().get();
 	}
 
 
@@ -773,14 +787,12 @@ struct GBSimulation
 			if (A.isKinematic)
 			{
 				vA = A.realVelocity(dt) + GBCross(A.realAngularVelocity(dt), rA);
-				B.wakeIsland();
 			}
 
 			GBVector3 vB = B.velocity + GBCross(B.angularVelocity, rB);
 			if (B.isKinematic)
 			{
 				vB = B.realVelocity(dt) + GBCross(B.realAngularVelocity(dt), rB);
-				A.wakeIsland();
 			}
 			GBVector3 vRel = vB - vA;
 			float vn = GBDot(vRel, n);
@@ -804,15 +816,8 @@ struct GBSimulation
 				const static float stackModifier = 1.0f;
 				if (GBAbs(GBAbs(vn) < staticManifoldThreshold * stackModifier && upness > slopeRequirement && relSpeed < 1.0f))
 				{
-					if (bodyIsPureColliderType(*m.pIncident, ColliderType::Sphere) && !bodyIsPureColliderType(*m.pReference, ColliderType::Sphere))
-					{
-						solveStaticSphereManifold(m, *m.pIncident, dt);
-						return;
-					}
-					{
-						solveStaticManifold(m, dt);
-						return;
-					}
+					solveStaticManifold(m, dt);
+					return;
 				}
 			}
 
@@ -970,6 +975,7 @@ struct GBSimulation
 		if (fabs(vn) < rollingThreshold)
 		{
 			GBVector3 vTangent = vRel - n * vn;
+
 			float vTangentLen = vTangent.length();
 
 			{
@@ -1994,6 +2000,21 @@ struct GBSimulation
 									manifold.pIncident->addDynamicContact(manifold.pReference);
 									manifold.pReference->addDynamicContact(manifold.pIncident);
 								}
+
+								if (supportAdded)
+								{
+									const static float k = 25.0f;
+									if (manifold.pIncident->isKinematic)
+									{
+										GBVector3 error = manifold.pIncident->velocity.xyComponent() - manifold.pReference->velocity.xyComponent();
+										manifold.pReference->addForce(error * k);
+									}
+									if (manifold.pReference->isKinematic)
+									{
+										GBVector3 error = manifold.pReference->velocity.xyComponent() - manifold.pIncident->velocity.xyComponent();
+										manifold.pIncident->addForce(error * k);
+									}
+								}
 							}
 
 						}
@@ -2040,7 +2061,7 @@ struct GBSimulation
 						if (!staticPairs.insert(pair).second)
 							continue; // already processed this pair
 
-						if (bodyA->isStatic && bodyB->isStatic)
+						if (!(bodyB->isStatic || bodyB->isSleeping || bodyB->isTrigger))
 							continue;
 
 						GBManifold manifold;
