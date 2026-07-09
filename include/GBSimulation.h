@@ -955,6 +955,7 @@ struct GBSimulation
 
 		// use contact velocity
 		GBVector3 vRel = body.velocity + GBCross(body.angularVelocity, r);
+			
 
 		float vn = GBDot(vRel, n);
 
@@ -996,6 +997,14 @@ struct GBSimulation
 		if (vn < 0.0f)
 		{
 			GBVector3 vTangent = vRel - n * vn;
+
+			GBBody* other = c.getOtherBody(&body);
+			if (other && other->isKinematic)
+			{
+				GBVector3 tangent = vTangent. normalized();
+				GBVector3 otherVt = GBDot(other->velocity, tangent) * tangent;
+				vTangent -= otherVt;
+			}
 
 			float vTangentLen = vTangent.length();
 
@@ -2168,24 +2177,19 @@ struct GBSimulation
 							GBVector3 relativeTangentialVel = tangentialVel - platformTangentialVel;
 
 							float relativeTangentialSpeed = relativeTangentialVel.length();
-							if (relativeTangentialSpeed > 0.1f)
-							{
-								GBVector3 r = pBody->frameManifold.contacts[0].position - pBody->transform.position;
-								GBVector3 omegaDesired =
-									GBCross(r, -relativeTangentialVel) / (r.lengthSquared());
 
-								// blend instead of snap
-								float blend = 10.0f * interDeltaTime;
-								blend = GBMin(blend, 1.0f);
+							GBVector3 r = pBody->frameManifold.contacts[0].position - pBody->transform.position;
+							GBVector3 omegaDesired =
+								GBCross(r, -relativeTangentialVel) / (r.lengthSquared());
 
-								pBody->angularVelocity =
-									pBody->angularVelocity * (1.0f - blend) +
-									omegaDesired * blend;
-							}
-							else
-							{
-								pBody->angularVelocity = GBVector3::zero();
-							}
+							// blend instead of snap
+							float blend = 20.0f * interDeltaTime;
+							blend = GBMin(blend, 1.0f);
+
+							pBody->angularVelocity =
+								pBody->angularVelocity * (1.0f - blend) +
+								omegaDesired * blend;
+
 						}
 					}
 				}
