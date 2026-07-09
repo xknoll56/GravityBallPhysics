@@ -69,6 +69,89 @@ struct GBBallJoint
 	GBVector3 accumulatedImpulse; // optional warm starting
 };
 
+struct GBPath
+{
+	std::vector<GBVector3> points;
+	int currentTargetIndex = 0;
+
+	GBVector3 getTarget(GBVector3 position, float stopingDistance = 0.1f)
+	{
+		int numPoints = points.size();
+		if (currentTargetIndex <numPoints)
+		{
+			GBVector3 curTarget = points[currentTargetIndex];
+			float distance = (curTarget - position).length();
+			if (distance < stopingDistance)
+			{
+				currentTargetIndex = (currentTargetIndex + 1) % numPoints;
+			}
+			return points[currentTargetIndex];
+		}
+		return GBVector3::zero();
+	}
+};
+
+struct GBController
+{
+	GBBody* pBody = nullptr;
+	GBVector3 target = GBVector3::zero();
+	float maxSpeed = 1.0f;
+	float stoppingDistance = 0.1f;
+	float speedAcceleration = 500.0f;
+	GBPath path;
+	bool isActive = true;
+
+
+	GBController(GBBody* pBody, GBVector3 target = GBVector3::zero(), float speed = 1.0f, float stoppingDistance = 0.1f):
+		pBody(pBody), target(target), maxSpeed(speed), stoppingDistance(stoppingDistance)
+	{
+		pBody->isKinematic = true;
+		pBody->isSleeping = false;
+		pBody->useGravity = false;
+	}
+
+	virtual void updateVelocity(float dt)
+	{
+		if (!isActive)
+			return;
+
+		if (path.points.size()>0)
+		{
+			int index = path.currentTargetIndex;
+			target = path.getTarget(pBody->transform.position, stoppingDistance);
+			if (path.currentTargetIndex != index)
+				pBody->velocity = GBVector3::zero();
+		}
+
+		GBVector3 toTarget = target - pBody->transform.position;
+		float dist = toTarget.length();
+
+		if (dist > stoppingDistance)
+		{
+			float slowRadius = 2.0f;
+
+			float desiredSpeed = maxSpeed;
+			if (dist < slowRadius)
+				desiredSpeed *= dist / slowRadius;
+
+			GBVector3 desiredVelocity = toTarget.normalized() * desiredSpeed;
+			GBVector3 steering = desiredVelocity - pBody->velocity;
+
+			float maxAccel = speedAcceleration * dt;
+			float steeringLength = steering.length();
+
+			if (steeringLength > maxAccel)
+				steering = steering / steeringLength * maxAccel;
+
+			pBody->velocity += steering;
+		}
+		else
+		{
+			pBody->velocity = GBVector3::zero();
+		}
+	}
+};
+
 struct GBSimulation
 {
 	//GBGrid grid;
@@ -83,6 +166,7 @@ struct GBSimulation
 	std::vector<std::unique_ptr<GBCloth>> cloths;
 	std::vector< std::unique_ptr<GBTriangle>> triangles;
 	std::vector< std::unique_ptr<GBTerrain>> terrains;
+	std::vector<std::unique_ptr<GBController>> controllers;
 	uint32_t idCount;
 	std::unordered_map<uint32_t, std::vector<std::function<void(const GBManifold& manifold, GBBody* pOther)>>> enterListeners;
 	std::unordered_map<uint32_t, std::vector<std::function<void(const GBManifold& manifold, GBBody* pOther)>>> stayListeners;
@@ -256,6 +340,11 @@ struct GBSimulation
 		return pTerrain;
 	}
 
+	GBController* createController(GBBody* pBody, GBVector3 target = GBVector3::zero(), float speed = 1.0f, float stoppingDistance = 0.1f)
+	{
+		controllers.push_back(std::make_unique<GBController>(pBody, target, speed, stoppingDistance));
+		return controllers.back().get();
+	}
 
 
 	GBTriangle* getTriangle(int index)
@@ -703,14 +792,12 @@ struct GBSimulation
 			if (A.isKinematic)
 			{
 				vA = A.realVelocity(dt) + GBCross(A.realAngularVelocity(dt), rA);
-				B.wakeIsland();
 			}
 
 			GBVector3 vB = B.velocity + GBCross(B.angularVelocity, rB);
 			if (B.isKinematic)
 			{
 				vB = B.realVelocity(dt) + GBCross(B.realAngularVelocity(dt), rB);
-				A.wakeIsland();
 			}
 			GBVector3 vRel = vB - vA;
 			float vn = GBDot(vRel, n);
@@ -734,15 +821,8 @@ struct GBSimulation
 				const static float stackModifier = 1.0f;
 				if (GBAbs(GBAbs(vn) < staticManifoldThreshold * stackModifier && upness > slopeRequirement && relSpeed < 1.0f))
 				{
-					if (bodyIsPureColliderType(*m.pIncident, ColliderType::Sphere) && !bodyIsPureColliderType(*m.pReference, ColliderType::Sphere))
-					{
-						solveStaticSphereManifold(m, *m.pIncident, dt);
-						return;
-					}
-					{
-						solveStaticManifold(m, dt);
-						return;
-					}
+					solveStaticManifold(m, dt);
+					return;
 				}
 			}
 
@@ -875,6 +955,7 @@ struct GBSimulation
 
 		// use contact velocity
 		GBVector3 vRel = body.velocity + GBCross(body.angularVelocity, r);
+			
 
 		float vn = GBDot(vRel, n);
 
@@ -890,16 +971,41 @@ struct GBSimulation
 				? restitution
 				: 0.0f;
 
-			float jn = -(1.0f + restitutionUsed) * vn;
+
+			const float baumgarteBeta = 0.2f;      // 0.1 - 0.3 typical
+			float penetration = c.distance; // positive penetration depth
+
+			float bias = 0.0f;
+
+			if (penetration > slop)
+			{
+				bias = baumgarteBeta *
+					(penetration - slop) /
+					dt;
+			}
+
+
+			float jn =
+				-(1.0f + restitutionUsed) * vn
+				- bias;
 
 			body.velocity += n * jn;
 			body.angularVelocity += body.invInertia * GBCross(r, n * jn);
 		}
 
 		// --- Rolling without slip ---
-		if (fabs(vn) < rollingThreshold)
+		if (vn < 0.0f)
 		{
 			GBVector3 vTangent = vRel - n * vn;
+
+			GBBody* other = c.getOtherBody(&body);
+			if (other && other->isKinematic)
+			{
+				GBVector3 tangent = vTangent. normalized();
+				GBVector3 otherVt = GBDot(other->velocity, tangent) * tangent;
+				vTangent -= otherVt;
+			}
+
 			float vTangentLen = vTangent.length();
 
 			{
@@ -1828,6 +1934,12 @@ struct GBSimulation
 				body->update(interDeltaTime);
 			}
 
+			for (auto& controllerIt : controllers)
+			{
+				GBController* pController = controllerIt.get();
+				pController->updateVelocity(interDeltaTime);
+			}
+
 
 			//*****************************************************************************************************
 			//*****************************************************************************************************
@@ -1964,7 +2076,7 @@ struct GBSimulation
 						if (!staticPairs.insert(pair).second)
 							continue; // already processed this pair
 
-						if (bodyA->isStatic && bodyB->isStatic)
+						if (!(bodyB->isStatic || bodyB->isSleeping || bodyB->isTrigger))
 							continue;
 
 						GBManifold manifold;
@@ -2047,6 +2159,40 @@ struct GBSimulation
 
 				if (body->isAwake())
 					body->updateTransform(interDeltaTime);
+
+				if (body->isKinematic)
+				{
+					GBVector3 dp = body->transform.position - body->prevPosition;
+					for (GBBody* pBody : body->dynamicBodies)
+					{
+						pBody->transform.position += dp;
+
+						if (bodyIsPureColliderType(*pBody, ColliderType::Sphere))
+						{
+							GBVector3 normal = pBody->frameManifold.normal;
+							GBVector3 tangentialVel = pBody->velocity - GBDot(pBody->velocity, normal) * normal;
+							GBVector3 tangent = tangentialVel.normalized();
+							GBVector3 platformTangentialVel = GBDot(tangent, body->velocity) * tangent;
+
+							GBVector3 relativeTangentialVel = tangentialVel - platformTangentialVel;
+
+							float relativeTangentialSpeed = relativeTangentialVel.length();
+
+							GBVector3 r = pBody->frameManifold.contacts[0].position - pBody->transform.position;
+							GBVector3 omegaDesired =
+								GBCross(r, -relativeTangentialVel) / (r.lengthSquared());
+
+							// blend instead of snap
+							float blend = 20.0f * interDeltaTime;
+							blend = GBMin(blend, 1.0f);
+
+							pBody->angularVelocity =
+								pBody->angularVelocity * (1.0f - blend) +
+								omegaDesired * blend;
+
+						}
+					}
+				}
 
 
 				float speed = body->velocity.length();

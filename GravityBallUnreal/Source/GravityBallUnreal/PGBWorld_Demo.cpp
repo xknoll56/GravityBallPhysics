@@ -29,6 +29,10 @@ void APGBWorld_Demo::BeginPlay()
 	{
 		initSceneRagdoll();
 	}
+	else if (levelName == "SpringJoints")
+	{
+		initSceneSpringJoint();
+	}
 
 	Super::BeginPlay();
 	doDrawAllPhysicsColliders = false;
@@ -472,6 +476,19 @@ void APGBWorld_Demo::initSceneRagdoll()
 }
 
 void APGBWorld_Demo::updateSceneRagdoll(float dt)
+{
+
+}
+
+void APGBWorld_Demo::initSceneSpringJoint()
+{
+	GBBody* pBody = simulation.createBody();
+	GBSphereCollider* pSphere = simulation.attachSphereCollider(pBody, 0.5f);
+	pBody->transform.position = { 0,0,10 };
+	sceneEnum = SCENE_SPRINGJOINT;
+}
+
+void APGBWorld_Demo::updateSceneSpringJoint(float dt)
 {
 
 }
