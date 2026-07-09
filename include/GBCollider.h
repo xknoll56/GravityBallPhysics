@@ -986,7 +986,12 @@ struct GBBody
 	{
 		GBVector3 velNorm = vel.normalized();
 		float velMagComp = GBDot(velNorm, velocity);
-		velocity = velocity - velMagComp * velNorm + vel;
+		float speed = vel.length();
+		if (velMagComp < speed)
+		{
+			velocity -= velMagComp * velNorm;
+			velocity += vel;
+		}
 	}
 
 	// Physics update (same as before, now clears forces automatically)

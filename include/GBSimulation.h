@@ -99,6 +99,7 @@ struct GBController
 	float stoppingDistance = 0.1f;
 	float speedAcceleration = 500.0f;
 	GBPath path;
+	bool isActive = true;
 
 
 	GBController(GBBody* pBody, GBVector3 target = GBVector3::zero(), float speed = 1.0f, float stoppingDistance = 0.1f):
@@ -106,10 +107,14 @@ struct GBController
 	{
 		pBody->isKinematic = true;
 		pBody->isSleeping = false;
+		pBody->useGravity = false;
 	}
 
 	virtual void updateVelocity(float dt)
 	{
+		if (!isActive)
+			return;
+
 		if (path.points.size()>0)
 		{
 			int index = path.currentTargetIndex;
@@ -965,7 +970,23 @@ struct GBSimulation
 				? restitution
 				: 0.0f;
 
-			float jn = -(1.0f + restitutionUsed) * vn;
+
+			const float baumgarteBeta = 0.2f;      // 0.1 - 0.3 typical
+			float penetration = c.distance; // positive penetration depth
+
+			float bias = 0.0f;
+
+			if (penetration > slop)
+			{
+				bias = baumgarteBeta *
+					(penetration - slop) /
+					dt;
+			}
+
+
+			float jn =
+				-(1.0f + restitutionUsed) * vn
+				- bias;
 
 			body.velocity += n * jn;
 			body.angularVelocity += body.invInertia * GBCross(r, n * jn);
@@ -2136,9 +2157,37 @@ struct GBSimulation
 					for (GBBody* pBody : body->dynamicBodies)
 					{
 						pBody->transform.position += dp;
+
+						if (bodyIsPureColliderType(*pBody, ColliderType::Sphere))
+						{
+							GBVector3 normal = pBody->frameManifold.normal;
+							GBVector3 tangentialVel = pBody->velocity - GBDot(pBody->velocity, normal) * normal;
+							GBVector3 tangent = tangentialVel.normalized();
+							GBVector3 platformTangentialVel = GBDot(tangent, body->velocity) * tangent;
+
+							GBVector3 relativeTangentialVel = tangentialVel - platformTangentialVel;
+
+							float relativeTangentialSpeed = relativeTangentialVel.length();
+							if (relativeTangentialSpeed > 0.1f)
+							{
+								GBVector3 r = pBody->frameManifold.contacts[0].position - pBody->transform.position;
+								GBVector3 omegaDesired =
+									GBCross(r, -relativeTangentialVel) / (r.lengthSquared());
+
+								// blend instead of snap
+								float blend = 10.0f * interDeltaTime;
+								blend = GBMin(blend, 1.0f);
+
+								pBody->angularVelocity =
+									pBody->angularVelocity * (1.0f - blend) +
+									omegaDesired * blend;
+							}
+							else
+							{
+								pBody->angularVelocity = GBVector3::zero();
+							}
+						}
 					}
-
-
 				}
 
 
