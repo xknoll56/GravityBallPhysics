@@ -74,24 +74,45 @@ struct GBPath
 	std::vector<GBVector3> points;
 	int currentTargetIndex = 0;
 
-	GBVector3 getTarget(GBVector3 position, float stopingDistance = 0.1f, bool loop = true)
+	GBVector3 getTarget(GBVector3 position, float stopingDistance = 0.1f, bool loop = true, bool forwards = true)
 	{
 		int numPoints = points.size();
-		if (currentTargetIndex <numPoints)
+		if (forwards)
 		{
-			GBVector3 curTarget = points[currentTargetIndex];
-			float distance = (curTarget - position).length();
-			if (distance < stopingDistance)
+			if (currentTargetIndex < numPoints)
 			{
-				currentTargetIndex = currentTargetIndex + 1;
-				if(loop)
-					currentTargetIndex = currentTargetIndex % numPoints;
-				else
-					currentTargetIndex = std::min(currentTargetIndex, numPoints - 1);
+				GBVector3 curTarget = points[currentTargetIndex];
+				float distance = (curTarget - position).length();
+				if (distance < stopingDistance)
+				{
+					currentTargetIndex = currentTargetIndex + 1;
+					if (loop)
+						currentTargetIndex = currentTargetIndex % numPoints;
+					else
+						currentTargetIndex = std::min(currentTargetIndex, numPoints - 1);
+				}
+				return points[currentTargetIndex];
 			}
-			return points[currentTargetIndex];
+			return GBVector3::zero();
 		}
-		return GBVector3::zero();
+		else
+		{
+			if (currentTargetIndex >= 0)
+			{
+				GBVector3 curTarget = points[currentTargetIndex];
+				float distance = (curTarget - position).length();
+				if (distance < stopingDistance)
+				{
+					currentTargetIndex = currentTargetIndex - 1;
+					if (loop)
+						currentTargetIndex = (currentTargetIndex + numPoints) % numPoints;
+					else
+						currentTargetIndex = std::max(currentTargetIndex, 0);
+				}
+				return points[currentTargetIndex];
+			}
+			return GBVector3::zero();
+		}
 	}
 };
 
@@ -105,11 +126,12 @@ struct GBController
 	GBPath path;
 	bool isActive = true;
 	bool loops = true;
+	bool forwards = true;
+	bool deactivate = false;
 
-
-	GBController(GBBody* pBody, GBVector3 target = GBVector3::zero(), float speed = 1.0f, float stoppingDistance = 0.1f):
-		pBody(pBody), target(target), maxSpeed(speed), stoppingDistance(stoppingDistance)
+	void setControllerBody(GBBody* body)
 	{
+		pBody = body;
 		pBody->isKinematic = true;
 		pBody->isSleeping = false;
 		pBody->useGravity = false;
@@ -117,15 +139,49 @@ struct GBController
 		pBody->usesController = true;
 	}
 
+	void removeBody(GBBody* body)
+	{
+		body->isKinematic = false;
+		pBody->isSleeping = false;
+		pBody->useGravity = true;
+		deactivate = true;
+	}
+
+
+	GBController(GBBody* pBody, GBVector3 target = GBVector3::zero(), float speed = 1.0f, float stoppingDistance = 0.1f):
+		pBody(pBody), target(target), maxSpeed(speed), stoppingDistance(stoppingDistance)
+	{
+		setControllerBody(pBody);
+	}
+
+	void reversePath()
+	{
+		if (forwards)
+		{
+			path.currentTargetIndex--;
+			if (path.currentTargetIndex < 0)
+				path.currentTargetIndex = path.points.size() - 1;
+		}
+		else
+		{
+			path.currentTargetIndex++;
+			if (path.currentTargetIndex >= path.points.size())
+				path.currentTargetIndex = 0;
+		}
+		forwards = !forwards;
+	}
+
 	virtual void updateVelocity(float dt)
 	{
+		if (deactivate)
+			return;
 
 		if (path.points.size()>0)
 		{
 			int index = path.currentTargetIndex;
 			if (isActive)
 			{
-				target = path.getTarget(pBody->transform.position, stoppingDistance, loops);
+				target = path.getTarget(pBody->transform.position, stoppingDistance, loops, forwards);
 				if (path.currentTargetIndex != index)
 					pBody->velocity = GBVector3::zero();
 			}
@@ -2175,6 +2231,10 @@ struct GBSimulation
 					GBVector3 dp = body->transform.position - body->prevPosition;
 					for (GBBody* pBody : body->dynamicBodies)
 					{
+						if (pBody->isStatic)
+							continue;
+						float dist = dp.length();
+
 						pBody->transform.position += dp;
 
 						if (bodyIsPureColliderType(*pBody, ColliderType::Sphere))
