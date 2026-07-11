@@ -74,20 +74,45 @@ struct GBPath
 	std::vector<GBVector3> points;
 	int currentTargetIndex = 0;
 
-	GBVector3 getTarget(GBVector3 position, float stopingDistance = 0.1f)
+	GBVector3 getTarget(GBVector3 position, float stopingDistance = 0.1f, bool loop = true, bool forwards = true)
 	{
 		int numPoints = points.size();
-		if (currentTargetIndex <numPoints)
+		if (forwards)
 		{
-			GBVector3 curTarget = points[currentTargetIndex];
-			float distance = (curTarget - position).length();
-			if (distance < stopingDistance)
+			if (currentTargetIndex < numPoints)
 			{
-				currentTargetIndex = (currentTargetIndex + 1) % numPoints;
+				GBVector3 curTarget = points[currentTargetIndex];
+				float distance = (curTarget - position).length();
+				if (distance < stopingDistance)
+				{
+					currentTargetIndex = currentTargetIndex + 1;
+					if (loop)
+						currentTargetIndex = currentTargetIndex % numPoints;
+					else
+						currentTargetIndex = std::min(currentTargetIndex, numPoints - 1);
+				}
+				return points[currentTargetIndex];
 			}
-			return points[currentTargetIndex];
+			return GBVector3::zero();
 		}
-		return GBVector3::zero();
+		else
+		{
+			if (currentTargetIndex >= 0)
+			{
+				GBVector3 curTarget = points[currentTargetIndex];
+				float distance = (curTarget - position).length();
+				if (distance < stopingDistance)
+				{
+					currentTargetIndex = currentTargetIndex - 1;
+					if (loop)
+						currentTargetIndex = (currentTargetIndex + numPoints) % numPoints;
+					else
+						currentTargetIndex = std::max(currentTargetIndex, 0);
+				}
+				return points[currentTargetIndex];
+			}
+			return GBVector3::zero();
+		}
 	}
 };
 
@@ -100,33 +125,74 @@ struct GBController
 	float speedAcceleration = 500.0f;
 	GBPath path;
 	bool isActive = true;
+	bool loops = true;
+	bool forwards = true;
+	bool deactivate = false;
+
+	void setControllerBody(GBBody* body)
+	{
+		pBody = body;
+		pBody->isKinematic = true;
+		pBody->isSleeping = false;
+		pBody->useGravity = false;
+		pBody->isStatic = false;
+		pBody->usesController = true;
+	}
+
+	void removeBody(GBBody* body)
+	{
+		body->isKinematic = false;
+		pBody->isSleeping = false;
+		pBody->useGravity = true;
+		deactivate = true;
+	}
 
 
 	GBController(GBBody* pBody, GBVector3 target = GBVector3::zero(), float speed = 1.0f, float stoppingDistance = 0.1f):
 		pBody(pBody), target(target), maxSpeed(speed), stoppingDistance(stoppingDistance)
 	{
-		pBody->isKinematic = true;
-		pBody->isSleeping = false;
-		pBody->useGravity = false;
+		setControllerBody(pBody);
+	}
+
+	void reversePath()
+	{
+		if (forwards)
+		{
+			path.currentTargetIndex--;
+			if (path.currentTargetIndex < 0)
+				path.currentTargetIndex = path.points.size() - 1;
+		}
+		else
+		{
+			path.currentTargetIndex++;
+			if (path.currentTargetIndex >= path.points.size())
+				path.currentTargetIndex = 0;
+		}
+		forwards = !forwards;
 	}
 
 	virtual void updateVelocity(float dt)
 	{
-		if (!isActive)
+		if (deactivate)
 			return;
 
 		if (path.points.size()>0)
 		{
 			int index = path.currentTargetIndex;
-			target = path.getTarget(pBody->transform.position, stoppingDistance);
-			if (path.currentTargetIndex != index)
-				pBody->velocity = GBVector3::zero();
+			if (isActive)
+			{
+				target = path.getTarget(pBody->transform.position, stoppingDistance, loops, forwards);
+				if (path.currentTargetIndex != index)
+					pBody->velocity = GBVector3::zero();
+			}
+			else 
+				target = path.points[index];
 		}
 
 		GBVector3 toTarget = target - pBody->transform.position;
 		float dist = toTarget.length();
 
-		if (dist > stoppingDistance)
+		if (dist > stoppingDistance && isActive)
 		{
 			float slowRadius = 2.0f;
 
@@ -170,7 +236,7 @@ struct GBSimulation
 	uint32_t idCount;
 	std::unordered_map<uint32_t, std::vector<std::function<void(const GBManifold& manifold, GBBody* pOther)>>> enterListeners;
 	std::unordered_map<uint32_t, std::vector<std::function<void(const GBManifold& manifold, GBBody* pOther)>>> stayListeners;
-	std::unordered_map<uint32_t, std::vector<std::function<void(GBBody* pOther)>>> exitListeners;
+	std::unordered_map<uint32_t, std::vector<std::function<void(const GBManifold& manifold, GBBody* pOther)>>> exitListeners;
 
 	//: gridMap(GBGridMap(GBVector3(-50,-50, -25), 1.0f, 100, 100, 50, 1, 1, 1))
 	GBSimulation()
@@ -214,13 +280,13 @@ struct GBSimulation
 			fn(manifold, pOther);
 	}
 
-	void dispatchExitListeners(uint32_t id,  GBBody* pOther)
+	void dispatchExitListeners(uint32_t id, const GBManifold& manifold, GBBody* pOther)
 	{
 		auto it = exitListeners.find(id);
 		if (it == exitListeners.end()) return;
 
 		for (auto& fn : it->second)
-			fn(pOther);
+			fn(manifold, pOther);
 	}
 
 	void addEnterListener(uint32_t id, std::function<void(const GBManifold&, GBBody*)> fn)
@@ -233,7 +299,7 @@ struct GBSimulation
 		stayListeners[id].push_back(std::move(fn));
 	}
 
-	void addExitListener(uint32_t id, std::function<void(GBBody*)> fn)
+	void addExitListener(uint32_t id, std::function<void(const GBManifold&, GBBody*)> fn)
 	{
 		exitListeners[id].push_back(std::move(fn));
 	}
@@ -248,7 +314,7 @@ struct GBSimulation
 		stayListeners[pBody->id].push_back(std::move(fn));
 	}
 
-	void addExitListener(GBBody* pBody, std::function<void(GBBody*)> fn)
+	void addExitListener(GBBody* pBody, std::function<void(const GBManifold&, GBBody*)> fn)
 	{
 		exitListeners[pBody->id].push_back(std::move(fn));
 	}
@@ -2160,11 +2226,15 @@ struct GBSimulation
 				if (body->isAwake())
 					body->updateTransform(interDeltaTime);
 
-				if (body->isKinematic)
+				if (body->isKinematic && body->usesController)
 				{
 					GBVector3 dp = body->transform.position - body->prevPosition;
 					for (GBBody* pBody : body->dynamicBodies)
 					{
+						if (pBody->isStatic)
+							continue;
+						float dist = dp.length();
+
 						pBody->transform.position += dp;
 
 						if (bodyIsPureColliderType(*pBody, ColliderType::Sphere))
@@ -2253,8 +2323,8 @@ struct GBSimulation
 		{
 			if (curPairManifolds.find(pair) == curPairManifolds.end())
 			{
-				dispatchExitListeners(pair.a->pBody->id, pair.b->pBody);
-				dispatchExitListeners(pair.b->pBody->id, pair.a->pBody);
+				dispatchExitListeners(pair.a->pBody->id,manifold, pair.b->pBody);
+				dispatchExitListeners(pair.b->pBody->id,manifold, pair.a->pBody);
 
 				// Remove all contacts from the frame manifold held by each other
 				pair.a->pBody->frameManifold.removeCollidersContact(pair.b);

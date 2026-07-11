@@ -7,10 +7,10 @@
 
 enum class ColliderType
 {
-	Sphere,
-	Box,
-	AABB,
-	Capsule,
+	Sphere = 0,
+	Box = 1,
+	Capsule = 2,
+	AABB = 3,
 };
 
 struct GBBody;
@@ -707,6 +707,7 @@ struct GBBody
 	bool isKinematic = false;
 	bool ignoreKinematicVelocityClamp = false;
 	bool useGravity = true;
+	bool usesController = false;
 
 
 	bool sharesLayer(const GBBody& other)
