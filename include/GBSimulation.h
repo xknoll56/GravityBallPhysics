@@ -137,14 +137,20 @@ struct GBController
 		pBody->useGravity = false;
 		pBody->isStatic = false;
 		pBody->usesController = true;
+		pBody->velocity = GBVector3::zero();
+		pBody->angularVelocity = GBVector3::zero();
+		deactivate = false;
 	}
 
-	void removeBody(GBBody* body)
+	void removeBody()
 	{
-		body->isKinematic = false;
+		pBody->isKinematic = false;
 		pBody->isSleeping = false;
 		pBody->useGravity = true;
-		deactivate = true;
+		pBody->velocity = GBVector3::zero();
+		pBody->angularVelocity = GBVector3::zero();
+		pBody->usesController = false;
+		pBody = nullptr;
 	}
 
 
@@ -173,7 +179,7 @@ struct GBController
 
 	virtual void updateVelocity(float dt)
 	{
-		if (deactivate)
+		if (!pBody)
 			return;
 
 		if (path.points.size()>0)
@@ -2231,11 +2237,15 @@ struct GBSimulation
 					GBVector3 dp = body->transform.position - body->prevPosition;
 					for (GBBody* pBody : body->dynamicBodies)
 					{
-						if (pBody->isStatic)
+						if (pBody->isStatic || pBody->usesController)
 							continue;
 						float dist = dp.length();
 
-						pBody->transform.position += dp;
+						GBVector3 velDir = body->velocity.normalized();
+						GBVector3 velDirComp = GBDot(pBody->velocity, velDir) * velDir;
+
+
+						pBody->transform.position += body->velocity*interDeltaTime;
 
 						if (bodyIsPureColliderType(*pBody, ColliderType::Sphere))
 						{
