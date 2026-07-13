@@ -128,6 +128,7 @@ struct GBController
 	bool loops = true;
 	bool forwards = true;
 	bool deactivate = false;
+	bool complete = false;
 
 	void setControllerBody(GBBody* body)
 	{
@@ -140,6 +141,7 @@ struct GBController
 		pBody->velocity = GBVector3::zero();
 		pBody->angularVelocity = GBVector3::zero();
 		deactivate = false;
+		complete = false;
 	}
 
 	void removeBody()
@@ -151,6 +153,15 @@ struct GBController
 		pBody->angularVelocity = GBVector3::zero();
 		pBody->usesController = false;
 		pBody = nullptr;
+		complete = false;
+	}
+
+	bool isPathFinished() const
+	{
+		GBVector3 toTarget = target - pBody->transform.position;
+		if(toTarget.lengthSquared() > stoppingDistance* stoppingDistance)
+			return false;
+		return true;
 	}
 
 
@@ -179,7 +190,7 @@ struct GBController
 
 	virtual void updateVelocity(float dt)
 	{
-		if (!pBody)
+		if (!pBody || deactivate)
 			return;
 
 		if (path.points.size()>0)
@@ -219,6 +230,10 @@ struct GBController
 		}
 		else
 		{
+			if (path.currentTargetIndex == path.points.size() - 1)
+				complete = true;
+			else
+				complete = false;
 			pBody->velocity = GBVector3::zero();
 		}
 	}
@@ -1128,13 +1143,9 @@ struct GBSimulation
 			return;
 		}
 
-		if (bodyIsPureColliderType(*manifold.pIncident, ColliderType::Sphere) && manifold.pReference)
+		if (bodyIsPureColliderType(*manifold.pIncident, ColliderType::Sphere))
 		{
-			bool otherIsSphere = bodyIsPureColliderType(*manifold.pReference, ColliderType::Sphere);
-			if (otherIsSphere)
-				return;
-			else if (!manifold.pReference || (manifold.pReference))
-				solveStaticSphereManifold(manifold, *manifold.pIncident, dt);
+			solveStaticSphereManifold(manifold, *manifold.pIncident, dt);
 			return;
 		}
 
@@ -2239,18 +2250,17 @@ struct GBSimulation
 					{
 						if (pBody->isStatic || pBody->usesController)
 							continue;
+
 						float dist = dp.length();
 
-						GBVector3 velDir = body->velocity.normalized();
-						GBVector3 velDirComp = GBDot(pBody->velocity, velDir) * velDir;
+						pBody->transform.position += dp;
 
-
-						pBody->transform.position += body->velocity*interDeltaTime;
 
 						if (bodyIsPureColliderType(*pBody, ColliderType::Sphere))
 						{
+							GBVector3 realVelocity = dp / interDeltaTime;
 							GBVector3 normal = pBody->frameManifold.normal;
-							GBVector3 tangentialVel = pBody->velocity - GBDot(pBody->velocity, normal) * normal;
+							GBVector3 tangentialVel = pBody->realVelocity(interDeltaTime) - GBDot(realVelocity, normal) * normal;
 							GBVector3 tangent = tangentialVel.normalized();
 							GBVector3 platformTangentialVel = GBDot(tangent, body->velocity) * tangent;
 
