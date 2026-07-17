@@ -129,6 +129,7 @@ struct GBController
 	bool forwards = true;
 	bool deactivate = false;
 	bool complete = false;
+	bool reverseOnCompletion = true;
 
 	void setControllerBody(GBBody* body)
 	{
@@ -201,6 +202,23 @@ struct GBController
 				target = path.getTarget(pBody->transform.position, stoppingDistance, loops, forwards);
 				if (path.currentTargetIndex != index)
 					pBody->velocity = GBVector3::zero();
+
+				if (reverseOnCompletion && loops)
+				{
+					if (forwards && path.currentTargetIndex < index)
+					{
+						path.currentTargetIndex = path.points.size()-1;
+						reversePath();
+						target = path.getTarget(pBody->transform.position, stoppingDistance, loops, forwards);
+					}
+					else if (!forwards && path.currentTargetIndex > index)
+					{
+						path.currentTargetIndex = 0;
+						reversePath();
+						target = path.getTarget(pBody->transform.position, stoppingDistance, loops, forwards);
+
+					}
+				}
 			}
 			else 
 				target = path.points[index];
