@@ -793,13 +793,15 @@ struct GBBody
 	// Apply an instantaneous linear impulse at the center of mass
 	void applyImpulse(const GBVector3& impulse)
 	{
+		if (isSleeping)
+			wake();
 		velocity += impulse * invMass;
 	}
 
 	// Apply an instantaneous impulse at a world-space point (produces torque)
 	void applyImpulseAtPoint(const GBVector3& impulse, const GBVector3& point)
 	{
-		velocity += impulse * invMass;
+		applyImpulse(impulse);
 
 		GBVector3 r = point - transform.position; // lever arm
 		GBVector3 deltaAngular = GBCross(r, impulse); // torque
