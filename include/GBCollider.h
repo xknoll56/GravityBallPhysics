@@ -105,6 +105,16 @@ struct GBHit {
 		return nullptr;
 	}
 
+	GBCollider* getBodyCollider(const GBBody* pBody) const
+	{
+		if (pIncident && pIncident->pBody == pBody)
+			return pIncident;
+		if (pReference && pReference->pBody == pBody)
+			return pReference;
+		return nullptr;
+
+	}
+
 
 	GBVector3 getShapecastEndpoint(GBVector3 startPos, GBVector3 dir)
 	{
@@ -521,7 +531,7 @@ struct GBManifold
 		}
 	}
 
-	void alignNormalWithIncident();
+	void alignNormalWithIncident(GBCollider* pIncidentCol, GBCollider* pReferenceCol); 
 
 	bool equalPair(const GBManifold& other) const
 	{
@@ -793,13 +803,15 @@ struct GBBody
 	// Apply an instantaneous linear impulse at the center of mass
 	void applyImpulse(const GBVector3& impulse)
 	{
+		if (isSleeping)
+			wake();
 		velocity += impulse * invMass;
 	}
 
 	// Apply an instantaneous impulse at a world-space point (produces torque)
 	void applyImpulseAtPoint(const GBVector3& impulse, const GBVector3& point)
 	{
-		velocity += impulse * invMass;
+		applyImpulse(impulse);
 
 		GBVector3 r = point - transform.position; // lever arm
 		GBVector3 deltaAngular = GBCross(r, impulse); // torque
@@ -1376,11 +1388,11 @@ inline void GBManifold::pruneOutsideAABB(GBAABB aabb, float epsilon)
 	combine(pruned);
 }
 
-inline void GBManifold::alignNormalWithIncident()
+inline void GBManifold::alignNormalWithIncident(GBCollider* pIncidentCol, GBCollider* pReferenceCol)
 {
 	if (pIncident && pReference)
 	{
-		normal = GBAlign(normal, pIncident->transform.position - pReference->transform.position);
+		normal = GBAlign(normal, pIncidentCol->transform.position - pReferenceCol->transform.position);
 	}
 }
 

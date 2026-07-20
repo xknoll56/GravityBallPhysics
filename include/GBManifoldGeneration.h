@@ -2253,7 +2253,7 @@ struct GBManifoldGeneration
 		outManifold.pIncident = pIncident->pBody;
 		outManifold.pReference = pReference->pBody;
 
-		outManifold.alignNormalWithIncident();
+		outManifold.alignNormalWithIncident((GBCollider*)pIncident, (GBCollider*)pReference);
 		outManifold.alignContactsWithNormal();
 
 		outManifold.setContactColliders((GBCollider*)pIncident, (GBCollider*)pReference);
