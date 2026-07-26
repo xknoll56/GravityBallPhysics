@@ -319,6 +319,7 @@ struct GBSimulation
 	std::unordered_map<uint32_t, std::vector<std::function<void(const GBManifold& manifold, GBBody* pOther)>>> enterListeners;
 	std::unordered_map<uint32_t, std::vector<std::function<void(const GBManifold& manifold, GBBody* pOther)>>> stayListeners;
 	std::unordered_map<uint32_t, std::vector<std::function<void(const GBManifold& manifold, GBBody* pOther)>>> exitListeners;
+	bool manualClear = false;
 
 	//: gridMap(GBGridMap(GBVector3(-50,-50, -25), 1.0f, 100, 100, 50, 1, 1, 1))
 	GBSimulation()
@@ -341,7 +342,8 @@ struct GBSimulation
 
 	~GBSimulation()
 	{
-		clearSimulation();
+		if(manualClear)
+			clearSimulation();
 	}
 
 	void dispatchEnterListeners(uint32_t id, const GBManifold& manifold, GBBody* pOther)
@@ -609,6 +611,8 @@ struct GBSimulation
 
 		if (it == rigidBodies.end()) return false;
 		rigidBodies.erase(it);
+
+		pBody = nullptr;
 		return true;
 	}
 
