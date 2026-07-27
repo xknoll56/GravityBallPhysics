@@ -419,9 +419,9 @@ struct GBGrid
 		float invY = (dir.y != 0.0f) ? 1.0f / dir.y : INF;
 		float invZ = (dir.z != 0.0f) ? 1.0f / dir.z : INF;
 
-		auto nextBoundary = [](int cell, int step, float gridOrigin, float cellSize)
+		auto nextBoundary = [](int cell, int step, float gridOrigin, float cellSize_)
 			{
-				return gridOrigin + (cell + (step > 0 ? 1 : 0)) * cellSize;
+				return gridOrigin + (cell + (step > 0 ? 1 : 0)) * cellSize_;
 			};
 
 		float nextX = nextBoundary(ix, stepX, origin.x, cellSize);
@@ -582,6 +582,8 @@ struct GBGridMap
 		gridsZ = other.gridsZ;
 		occupiedGridIndices = other.occupiedGridIndices;
 		grids = other.grids;
+
+		return *this;
 	}
 
 
@@ -1007,9 +1009,9 @@ struct GBGridMap
 		float invY = (dir.y != 0.0f) ? 1.0f / dir.y : INF;
 		float invZ = (dir.z != 0.0f) ? 1.0f / dir.z : INF;
 
-		auto nextBoundary = [](int cell, int step, float gridOrigin, float cellSize)
+		auto nextBoundary = [](int cell, int step, float gridOrigin, float cellSize_)
 			{
-				return gridOrigin + (cell + (step > 0 ? 1 : 0)) * cellSize;
+				return gridOrigin + (cell + (step > 0 ? 1 : 0)) * cellSize_;
 			};
 
 		float nextX = nextBoundary(gx, stepX, origin.x, extents.x);

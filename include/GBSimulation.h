@@ -298,6 +298,8 @@ struct GBController
 			pBody->transform.position = path.points[prevTargetIndex] + pathNormal * distAlongPath;
 		}
 	}
+
+	virtual ~GBController() = default;
 };
 
 struct GBSimulation
@@ -405,12 +407,6 @@ struct GBSimulation
 
 
 
-	static GBSimulation simulationWithSingleGrid(GBVector3 anchor = GBVector3(-50, -50, -25), float cellSize = 1.0f, int cellsX = 100, int cellsY = 100, int cellsZ = 50)
-	{
-		GBSimulation sim;
-		sim.gridMap = GBGridMap(anchor, cellSize, cellsX, cellsY, cellsZ, 1, 1, 1);
-	}
-
 	uint32_t getId()
 	{
 		uint32_t id = idCount;
@@ -449,10 +445,10 @@ struct GBSimulation
 		GBVector3 origin = { FLT_MAX, FLT_MAX, FLT_MAX };
 		GBVector3 max = { 0,0,0 };
 		pTerrain->triangles.reserve(trianglesArr.size());
-		for (const std::vector<GBTriangle> tris : trianglesArr)
+		for (const std::vector<GBTriangle>& tris : trianglesArr)
 		{
 			pTerrain->triangles.push_back(std::vector<GBTriangle*>());
-			for (const GBTriangle tri : tris)
+			for (const GBTriangle& tri : tris)
 			{
 				pTerrain->triangles.back().push_back(createTriangle(tri.vertices[0], tri.vertices[1], tri.vertices[2], false));
 				for (int i = 0; i < 3; i++)
@@ -475,7 +471,7 @@ struct GBSimulation
 
 		pTerrain->pGrid = new GBGrid(origin, spacing, pTerrain->cellsX, pTerrain->cellsY, pTerrain->cellsZ, getId(), GBGridType::TERRAIN);
 
-		for (const std::vector<GBTriangle*> tris : pTerrain->triangles)
+		for (const std::vector<GBTriangle*>& tris : pTerrain->triangles)
 		{
 			for (const GBTriangle* pTri : tris)
 			{
@@ -972,7 +968,7 @@ struct GBSimulation
 				float relSpeed = vRel.lengthSquared();
 				float upness = GBDot(GBVector3::up(), m.normal);
 				const static float stackModifier = 1.0f;
-				if (GBAbs(GBAbs(vn) < staticManifoldThreshold * stackModifier && upness > slopeRequirement && relSpeed < 1.0f))
+				if (GBAbs(vn) < staticManifoldThreshold * stackModifier && upness > slopeRequirement && relSpeed < 1.0f)
 				{
 					solveStaticManifold(m, dt);
 					return;
@@ -1747,7 +1743,7 @@ struct GBSimulation
 
 	enum BroadPhaseType
 	{
-		NONE = 0,
+		BRUTE_FORCE = 0,
 		UNIFORM_GRID = 1
 	};
 
@@ -1757,7 +1753,7 @@ struct GBSimulation
 	{
 		switch (broadPhaseType)
 		{
-		case BroadPhaseType::NONE:
+		case BroadPhaseType::BRUTE_FORCE:
 			for (int i = 0; i < colliders.size(); i++)
 			{	
 				outCols.push_back(colliders[i]);
@@ -1773,7 +1769,7 @@ struct GBSimulation
 	std::vector<GBAABB> getOccupiedCellAABBs(const GBBody& body)
 	{
 		std::vector<GBAABB> cellAABBs;
-		if (broadPhaseType == BroadPhaseType::NONE)
+		if (broadPhaseType == BroadPhaseType::BRUTE_FORCE)
 			return cellAABBs;
 
 		std::vector<GBCell*> occupiedCells;
@@ -2461,7 +2457,7 @@ struct GBSimulation
 	}
 
 
-	std::vector<GBManifold> generateBodiesManifolds(std::vector<GBBody*> bodies, BroadPhaseType sampleType = BroadPhaseType::NONE)
+	std::vector<GBManifold> generateBodiesManifolds(std::vector<GBBody*> bodies, BroadPhaseType sampleType = BroadPhaseType::BRUTE_FORCE)
 	{
 		std::vector<GBManifold> generatedManifolds;
 		for (GBBody* bodyA : bodies)

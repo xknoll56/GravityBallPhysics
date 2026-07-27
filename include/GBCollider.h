@@ -164,8 +164,8 @@ struct GBManifold
 	bool isJoint = false;
 	const static int manifoldContactClamp = 4;
 	GBSATCollisionData data;
-	GBCardinal incidentFace = GBCardinal::None;
-	GBCardinal referemceFace = GBCardinal::None;
+	GBCardinal incidentFace = GBCardinal::Directionless;
+	GBCardinal referemceFace = GBCardinal::Directionless;
 	std::unordered_set<GBCollider*> referenceColliders;
 
 	GBManifold()
@@ -1732,7 +1732,7 @@ inline bool GBManifold::containsSupportOrigin(GBVector3 pos, float tolerance, fl
 		GBVector3 normDp = dp.normalized();
 		if (normDp.z < 0.0f)
 			normDp = -normDp;
-		if (GBAbs(GBDot(dp, GBVector3::up()) > (1.0f - GBLargeEpsilon)))
+		if (GBAbs(GBDot(dp, GBVector3::up())) > (1.0f - GBLargeEpsilon))
 		{
 			right = GBCross(GBVector3::forward(), normDp).normalized();
 		}
@@ -1872,6 +1872,8 @@ struct GBBoxCollider : public GBCollider {
 			return transform.up();
 			break;
 		}
+
+		return GBVector3();
 	}
 
 	float volume() const  override

@@ -2027,7 +2027,7 @@ struct GBManifoldGeneration
 		case GBCardinal::NegZ:
 			return GBCardinal::PosZ;
 		}
-		return GBCardinal::None;
+		return GBCardinal::Directionless;
 	}
 
 	static GBPlane GBCardinalDirToPlane(const GBAABB& aabb, GBCardinal dir)
