@@ -5,7 +5,7 @@ enum GBCardinal
     PosX = 0, NegX,
     PosY, NegY,
     PosZ, NegZ,
-    None
+    Directionless
 };
 
 
