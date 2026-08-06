@@ -612,6 +612,19 @@ struct GBSimulation
 		return true;
 	}
 
+	bool deleteAndNullifyBodyPointer(GBBody** ppBody)
+	{
+		if (!ppBody || !*ppBody)
+			return false;
+
+		bool result = deleteBody(*ppBody);
+
+		if (result)
+			*ppBody = nullptr;
+
+		return result;
+	}
+
 	GBSphereCollider* attachSphereCollider(GBBody* pBody, float radius, GBTransform localTransform = GBTransform(), bool insertToGrid = true)
 	{
 		sphereColliders.push_back(std::make_unique<GBSphereCollider>());
