@@ -1,4 +1,4 @@
-###Physics Engine Overview
+## Physics Engine Overview
 
 <p align="center">
   <img src="https://github.com/user-attachments/assets/6f796b78-c998-458c-bd7e-05c1f626edeb"
@@ -8,20 +8,21 @@
 
 - A modern, header-only C++ 3D rigid body physics engine built for games.
 
-🚀 Header-only design
-⚡ Real-time sequential impulse solver
-📦 Stable box stacking and resting contacts
-🎯 Deterministic simulation
-🌍 Uniform-grid broad phase
-🎮 Integrated into Unreal Engine (rendering only)
+🚀 Header-only design <br>
+⚡ Real-time sequential impulse solver <br>
+📦 Stable box stacking and resting contacts <br>
+🎯 Deterministic simulation <br>
+🌍 Uniform-grid broad phase <br>
+🎮 Integrated into Unreal Engine (rendering only) <br>
 
-###Features
-#Physics
-Sequential impulse constraint solver
-Persistent contact manifolds
-Warm starting
-Restitution and Coulomb friction
-Sleeping / wake propagation
-Continuous grounded contact handling
-Position correction with penetration slop
-Stack stabilization
+## Features
+# Physics
+Sequential impulse constraint solver <br>
+Persistent contact manifolds <br>
+Warm starting <br>
+Restitution and Coulomb friction <br>
+Sleeping / wake propagation <br>
+Continuous grounded contact handling <br>
+Position correction with penetration slop <br>
+Position correction with penetration slop <br>
+Stack stabilization <br>
