@@ -1,6 +1,6 @@
 Physics Engine Overview
 
-<img width="1254" height="1254" alt="GravityBallPhysicsLogo" src="https://github.com/user-attachments/assets/6f796b78-c998-458c-bd7e-05c1f626edeb" />
+<img width="500" height="500" alt="GravityBallPhysicsLogo" src="https://github.com/user-attachments/assets/6f796b78-c998-458c-bd7e-05c1f626edeb" />
 
 
 The engine is a custom real-time rigid body physics system built around an iterative sequential impulse solver with stack-aware contact stabilization and recursive contact graph propagation.
