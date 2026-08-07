@@ -532,6 +532,7 @@ struct GBManifold
 	}
 
 	void alignNormalWithIncident(GBCollider* pIncidentCol, GBCollider* pReferenceCol); 
+	void alignNormalWithIncident(); 
 
 	bool equalPair(const GBManifold& other) const
 	{
@@ -1387,6 +1388,15 @@ inline void GBManifold::pruneOutsideAABB(GBAABB aabb, float epsilon)
 	clear();
 	combine(pruned);
 }
+
+inline void GBManifold::alignNormalWithIncident()
+{
+	if (pIncident && pReference)
+	{
+		normal = GBAlign(normal, pIncident->transform.position - pReference->transform.position);
+	}
+}
+
 
 inline void GBManifold::alignNormalWithIncident(GBCollider* pIncidentCol, GBCollider* pReferenceCol)
 {
