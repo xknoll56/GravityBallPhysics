@@ -421,6 +421,7 @@ struct GBSimulation
 		body->id = getId();
 		body->setMass(mass);
 		body->isStatic = isStatic;
+		body->pData = nullptr;
 		return body;
 	}
 
@@ -633,6 +634,7 @@ struct GBSimulation
 		col->radius = radius;
 		col->id = getId();
 		col->pBody = pBody;
+		col->pData = nullptr;
 		colliders.push_back(col);
 		pBody->colliders.push_back(col);
 		pBody->updateColliders();
@@ -799,6 +801,7 @@ struct GBSimulation
 		col->halfExtents = halfExtents;
 		col->id = getId();
 		col->pBody = pBody;
+		col->pData = nullptr;
 		colliders.push_back(col);
 		pBody->colliders.push_back(col);
 		pBody->updateColliders();
@@ -820,6 +823,7 @@ struct GBSimulation
 		col->height = height;
 		col->id = getId();
 		col->pBody = pBody;
+		col->pData = nullptr;
 		colliders.push_back(col);
 		pBody->colliders.push_back(col);
 		pBody->updateColliders();
