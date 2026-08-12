@@ -1784,6 +1784,7 @@ struct GBBoxCollider : public GBCollider {
 
 	void extractEdges(GBEdge edges[12])
 	{
+		setVerts();
 		// Bottom face
 		edges[0] = GBEdge(vertices[0], vertices[1]);
 		edges[1] = GBEdge(vertices[1], vertices[2]);
