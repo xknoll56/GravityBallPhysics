@@ -421,6 +421,7 @@ struct GBSimulation
 		body->id = getId();
 		body->setMass(mass);
 		body->isStatic = isStatic;
+		body->pData = nullptr;
 		return body;
 	}
 
@@ -512,6 +513,42 @@ struct GBSimulation
 	GBCapsuleCollider* getCapsuleCollider(int index)
 	{
 		return (index < capsuleColliders.size()) ? capsuleColliders[index].get() : nullptr;
+	}
+
+	GBCollider* getColliderWithKey(int key, ColliderType type = ColliderType::Sphere)
+	{
+		switch (type)
+		{
+		case ColliderType::Sphere:
+			for (auto& sphereIt : sphereColliders)
+			{
+				if (sphereIt->id == key)
+				{
+					return static_cast<GBCollider*>(sphereIt.get());
+				}
+			}
+			break;
+		case ColliderType::Capsule:
+			for (auto& capsuleIt : capsuleColliders)
+			{
+				if (capsuleIt->id == key)
+				{
+					return static_cast<GBCollider*>(capsuleIt.get());
+				}
+			}
+			break;
+		case ColliderType::Box:
+			for (auto& boxIt : boxColliders)
+			{
+				if (boxIt->id == key)
+				{
+					return static_cast<GBCollider*>(boxIt.get());
+				}
+			}
+			break;
+
+		}
+		return nullptr;
 	}
 
 	GBBody* getBody(int index)
@@ -633,6 +670,7 @@ struct GBSimulation
 		col->radius = radius;
 		col->id = getId();
 		col->pBody = pBody;
+		col->pData = nullptr;
 		colliders.push_back(col);
 		pBody->colliders.push_back(col);
 		pBody->updateColliders();
@@ -799,6 +837,7 @@ struct GBSimulation
 		col->halfExtents = halfExtents;
 		col->id = getId();
 		col->pBody = pBody;
+		col->pData = nullptr;
 		colliders.push_back(col);
 		pBody->colliders.push_back(col);
 		pBody->updateColliders();
@@ -820,6 +859,7 @@ struct GBSimulation
 		col->height = height;
 		col->id = getId();
 		col->pBody = pBody;
+		col->pData = nullptr;
 		colliders.push_back(col);
 		pBody->colliders.push_back(col);
 		pBody->updateColliders();

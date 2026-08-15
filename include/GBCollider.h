@@ -532,6 +532,7 @@ struct GBManifold
 	}
 
 	void alignNormalWithIncident(GBCollider* pIncidentCol, GBCollider* pReferenceCol); 
+	void alignNormalWithIncident(); 
 
 	bool equalPair(const GBManifold& other) const
 	{
@@ -1388,6 +1389,15 @@ inline void GBManifold::pruneOutsideAABB(GBAABB aabb, float epsilon)
 	combine(pruned);
 }
 
+inline void GBManifold::alignNormalWithIncident()
+{
+	if (pIncident && pReference)
+	{
+		normal = GBAlign(normal, pIncident->transform.position - pReference->transform.position);
+	}
+}
+
+
 inline void GBManifold::alignNormalWithIncident(GBCollider* pIncidentCol, GBCollider* pReferenceCol)
 {
 	if (pIncident && pReference)
@@ -1762,14 +1772,36 @@ struct GBBoxCollider : public GBCollider {
 		GBVector3 up = transform.up();
 		GBVector3 right = transform.right();
 		GBVector3 forward = transform.forward();
-		vertices[0] = transform.position - (right * halfExtents.x) - (up * halfExtents.y) - (forward * halfExtents.z);
-		vertices[1] = transform.position + (right * halfExtents.x) - (up * halfExtents.y) - (forward * halfExtents.z);
-		vertices[2] = transform.position + (right * halfExtents.x) + (up * halfExtents.y) - (forward * halfExtents.z);
-		vertices[3] = transform.position - (right * halfExtents.x) + (up * halfExtents.y) - (forward * halfExtents.z);
-		vertices[4] = transform.position - (right * halfExtents.x) - (up * halfExtents.y) + (forward * halfExtents.z);
-		vertices[5] = transform.position + (right * halfExtents.x) - (up * halfExtents.y) + (forward * halfExtents.z);
-		vertices[6] = transform.position + (right * halfExtents.x) + (up * halfExtents.y) + (forward * halfExtents.z);
-		vertices[7] = transform.position - (right * halfExtents.x) + (up * halfExtents.y) + (forward * halfExtents.z);
+		vertices[0] = transform.position - (right * halfExtents.y) - (up * halfExtents.z) - (forward * halfExtents.x);
+		vertices[1] = transform.position + (right * halfExtents.y) - (up * halfExtents.z) - (forward * halfExtents.x);
+		vertices[2] = transform.position + (right * halfExtents.y) + (up * halfExtents.z) - (forward * halfExtents.x);
+		vertices[3] = transform.position - (right * halfExtents.y) + (up * halfExtents.z) - (forward * halfExtents.x);
+		vertices[4] = transform.position - (right * halfExtents.y) - (up * halfExtents.z) + (forward * halfExtents.x);
+		vertices[5] = transform.position + (right * halfExtents.y) - (up * halfExtents.z) + (forward * halfExtents.x);
+		vertices[6] = transform.position + (right * halfExtents.y) + (up * halfExtents.z) + (forward * halfExtents.x);
+		vertices[7] = transform.position - (right * halfExtents.y) + (up * halfExtents.z) + (forward * halfExtents.x);
+	}
+
+	void extractEdges(GBEdge edges[12])
+	{
+		setVerts();
+		// Bottom face
+		edges[0] = GBEdge(vertices[0], vertices[1]);
+		edges[1] = GBEdge(vertices[1], vertices[2]);
+		edges[2] = GBEdge(vertices[2], vertices[3]);
+		edges[3] = GBEdge(vertices[3], vertices[0]);
+
+		// Top face
+		edges[4] = GBEdge(vertices[4], vertices[5]);
+		edges[5] = GBEdge(vertices[5], vertices[6]);
+		edges[6] = GBEdge(vertices[6], vertices[7]);
+		edges[7] = GBEdge(vertices[7], vertices[4]);
+
+		// Connecting edges
+		edges[8] = GBEdge(vertices[0], vertices[4]);
+		edges[9] = GBEdge(vertices[1], vertices[5]);
+		edges[10] = GBEdge(vertices[2], vertices[6]);
+		edges[11] = GBEdge(vertices[3], vertices[7]);
 	}
 
 	GBBoxCollider()
