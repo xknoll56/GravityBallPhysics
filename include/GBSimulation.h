@@ -515,6 +515,42 @@ struct GBSimulation
 		return (index < capsuleColliders.size()) ? capsuleColliders[index].get() : nullptr;
 	}
 
+	GBCollider* getColliderWithKey(int key, ColliderType type = ColliderType::Sphere)
+	{
+		switch (type)
+		{
+		case ColliderType::Sphere:
+			for (auto& sphereIt : sphereColliders)
+			{
+				if (sphereIt->id == key)
+				{
+					return static_cast<GBCollider*>(sphereIt.get());
+				}
+			}
+			break;
+		case ColliderType::Capsule:
+			for (auto& capsuleIt : capsuleColliders)
+			{
+				if (capsuleIt->id == key)
+				{
+					return static_cast<GBCollider*>(capsuleIt.get());
+				}
+			}
+			break;
+		case ColliderType::Box:
+			for (auto& boxIt : boxColliders)
+			{
+				if (boxIt->id == key)
+				{
+					return static_cast<GBCollider*>(boxIt.get());
+				}
+			}
+			break;
+
+		}
+		return nullptr;
+	}
+
 	GBBody* getBody(int index)
 	{
 		return (index < rigidBodies.size()) ? rigidBodies[index].get() : nullptr;
