@@ -226,31 +226,6 @@ struct GBManifoldGeneration
 		}
 
 		// --------------------------------------------------
-		// Ray vs end spheres
-		// --------------------------------------------------
-		GBSphereCollider s0, s1;
-		s0.radius = capsule.radius;
-		s1.radius = capsule.radius;
-		s0.transform.position = A;
-		s1.transform.position = B;
-
-		GBContact c0, c1;
-
-		if (GBRaycastSphere(s0, rayOrigin, rayDir, c0, bestT))
-		{
-			bestT = c0.distance;
-			outContact = c0;
-			hit = true;
-		}
-
-		if (GBRaycastSphere(s1, rayOrigin, rayDir, c1, bestT))
-		{
-			bestT = c1.distance;
-			outContact = c1;
-			hit = true;
-		}
-
-		// --------------------------------------------------
 		// If cylinder was closest hit
 		// --------------------------------------------------
 		if (hit && bestT < maxDistance)
@@ -264,10 +239,42 @@ struct GBManifoldGeneration
 				(outContact.position - proj).normalized();
 
 			outContact.distance = bestT;
-			return true;
 		}
 
-		return false;
+		// --------------------------------------------------
+		// Ray vs end spheres
+		// --------------------------------------------------
+		GBSphereCollider s0, s1;
+		s0.radius = capsule.radius;
+		s1.radius = capsule.radius;
+		s0.transform.position = A;
+		s1.transform.position = B;
+
+		GBContact c0, c1;
+
+		if (GBRaycastSphere(s0, rayOrigin, rayDir, c0, bestT))
+		{
+			if (c0.distance < bestT)
+			{
+				bestT = c0.distance;
+				outContact = c0;
+				hit = true;
+			}
+		}
+
+		if (GBRaycastSphere(s1, rayOrigin, rayDir, c1, bestT))
+		{
+			if (c1.distance < bestT)
+			{
+				bestT = c1.distance;
+				outContact = c1;
+				hit = true;
+			}
+		}
+
+
+
+		return hit;
 	}
 
 	static bool GBRaycastOBB(
