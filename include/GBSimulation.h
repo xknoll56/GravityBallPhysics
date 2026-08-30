@@ -150,14 +150,17 @@ struct GBController
 
 	void removeBody()
 	{
-		pBody->isKinematic = false;
-		pBody->isSleeping = false;
-		pBody->useGravity = true;
-		pBody->velocity = GBVector3::zero();
-		pBody->angularVelocity = GBVector3::zero();
-		pBody->usesController = false;
-		pBody = nullptr;
-		complete = false;
+		if (pBody != nullptr)
+		{
+			pBody->isKinematic = false;
+			pBody->isSleeping = false;
+			pBody->useGravity = true;
+			pBody->velocity = GBVector3::zero();
+			pBody->angularVelocity = GBVector3::zero();
+			pBody->usesController = false;
+			pBody = nullptr;
+			complete = false;
+		}
 	}
 
 	bool isPathFinished() const
