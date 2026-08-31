@@ -53,3 +53,12 @@ while (running)
     simulation.Step(dt);
 }
 ```
+
+## License
+
+GravityBallPhysics, including its Unreal Engine integration and demo code,
+is licensed under the [MIT License](LICENSE).
+
+The separate GravityBall game and its assets are not included under this license.
+
+Copyright © 2026 Xavier Knoll.
