@@ -194,6 +194,7 @@ struct GBController
 
 	void reversePath()
 	{
+		prevTargetIndex = path.currentTargetIndex;
 		if (forwards)
 		{
 			path.currentTargetIndex--;
@@ -2394,7 +2395,7 @@ struct GBSimulation
 				if (body->isAwake())
 					body->updateTransform(interDeltaTime);
 
-				if (body->isKinematic && body->usesController)
+				if (body->isKinematic && body->usesController && !body->isStatic)
 				{
 					GBVector3 dp = body->transform.position - body->prevPosition;
 					for (GBBody* pBody : body->dynamicBodies)
