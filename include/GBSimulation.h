@@ -133,6 +133,7 @@ struct GBController
 	bool complete = false;
 	bool reverseOnCompletion = true;
 	bool confinedToPath = false;
+	bool bodyWasStatic = false;
 
 	void setControllerBody(GBBody* body)
 	{
@@ -140,10 +141,14 @@ struct GBController
 		pBody->isKinematic = true;
 		pBody->isSleeping = false;
 		pBody->useGravity = false;
+		bodyWasStatic = pBody->isStatic;
 		pBody->isStatic = false;
+		if(deactivate)
+			pBody->isStatic = bodyWasStatic;
 		pBody->usesController = true;
 		pBody->velocity = GBVector3::zero();
 		pBody->angularVelocity = GBVector3::zero();
+		pBody->wakeIsland();
 		deactivate = false;
 		complete = false;
 	}
@@ -153,6 +158,15 @@ struct GBController
 		if (pBody != nullptr)
 		{
 			pBody->isKinematic = false;
+			if (bodyWasStatic)
+			{
+				if (path.currentTargetIndex == 0 && !forwards ||
+					path.currentTargetIndex == path.points.size() - 1 && forwards)
+				{
+					pBody->isStatic = bodyWasStatic;
+				}
+
+			}
 			pBody->isSleeping = false;
 			pBody->useGravity = true;
 			pBody->velocity = GBVector3::zero();
@@ -201,6 +215,12 @@ struct GBController
 		{
 			prevTargetSet = true;
 			prevTargetIndex = 0;
+		}
+
+		if (pBody)
+		{
+			if(!deactivate && pBody->isStatic)
+				pBody->isStatic = false;
 		}
 
 		if (!pBody || deactivate)
@@ -265,9 +285,19 @@ struct GBController
 		else
 		{
 			if (path.currentTargetIndex == path.points.size() - 1)
+			{
 				complete = true;
+				pBody->isStatic = bodyWasStatic;
+			}
 			else
+			{
 				complete = false;
+				pBody->isStatic = false;
+			}
+
+			if (path.currentTargetIndex == 0 && !forwards)
+				pBody->isStatic = bodyWasStatic;
+
 			pBody->velocity = GBVector3::zero();
 		}
 	}
