@@ -172,6 +172,7 @@ struct GBController
 			pBody->velocity = GBVector3::zero();
 			pBody->angularVelocity = GBVector3::zero();
 			pBody->usesController = false;
+			pBody->wakeIsland();
 			pBody = nullptr;
 			complete = false;
 		}
@@ -208,6 +209,8 @@ struct GBController
 				path.currentTargetIndex = 0;
 		}
 		forwards = !forwards;
+		if(pBody)
+			pBody->wakeIsland();
 	}
 
 	virtual void updateVelocity(float dt)
