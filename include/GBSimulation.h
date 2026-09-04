@@ -2408,7 +2408,9 @@ struct GBSimulation
 
 						float dist = dp.length();
 
-						pBody->transform.position += dp;
+						float weight = 0.95f;
+						pBody->transform.position += dp * weight;
+						pBody->adoptVelocity(body->velocity.zComponent() * weight);
 
 
 						if (bodyIsPureColliderType(*pBody, ColliderType::Sphere))
