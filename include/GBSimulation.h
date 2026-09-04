@@ -2415,10 +2415,10 @@ struct GBSimulation
 						{
 							pBody->transform.position += dp;
 						}
-						else if(body->velocity.z > 0.0f)
+						else
 						{
 							pBody->transform.position += dp * weight;
-							pBody->adoptVelocity(body->velocity.zComponent() * 0.25f);
+							pBody->adoptVelocity(body->velocity.zComponent() * weight);
 						}
 
 						if (bodyIsSphere)
