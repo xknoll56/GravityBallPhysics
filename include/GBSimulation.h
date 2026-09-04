@@ -2409,11 +2409,19 @@ struct GBSimulation
 						float dist = dp.length();
 
 						float weight = 0.95f;
-						pBody->transform.position += dp * weight;
-						pBody->adoptVelocity(body->velocity.zComponent() * weight);
+						bool bodyIsSphere = bodyIsPureColliderType(*pBody, ColliderType::Sphere);
 
+						if (bodyIsSphere)
+						{
+							pBody->transform.position += dp;
+						}
+						else if(body->velocity.z > 0.0f)
+						{
+							pBody->transform.position += dp * weight;
+							pBody->adoptVelocity(body->velocity.zComponent() * 0.25f);
+						}
 
-						if (bodyIsPureColliderType(*pBody, ColliderType::Sphere))
+						if (bodyIsSphere)
 						{
 							GBVector3 realVelocity = dp / interDeltaTime;
 							GBVector3 normal = pBody->frameManifold.normal;
