@@ -1330,7 +1330,7 @@ struct GBSimulation
 			if (invMassEff < 1e-8f)
 				continue;
 
-			const float baumgarteBeta = 0.2f;      // 0.1 - 0.3 typical
+			const float baumgarteBeta = 0.01f;      // 0.1 - 0.3 typical
 			float penetration = c.distance; // positive penetration depth
 
 			float bias = 0.0f;
@@ -2459,7 +2459,7 @@ struct GBSimulation
 
 				if (hasStatic)
 				{
-					const static float defaultDamping = 0.998f;
+					const static float defaultDamping = 1.0f-GBEpsilon;
 					body->velocity *= defaultDamping;
 					body->angularVelocity *= defaultDamping;
 				}
