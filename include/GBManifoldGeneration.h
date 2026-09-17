@@ -1077,10 +1077,13 @@ struct GBManifoldGeneration
 		testBox.setTransform(box.transform);
 		testBox.setVerts();
 		GBContact hit;
-		GBVector3 upper, lower;
-		capsule.extractSphereLocations(upper, lower);
+		GBVector3 upper, lower, up;
+		capsule.extractSphereLocations(upper, lower, &up);
+
 		bool foundPen = false;
+		bool isContained = false;
 		outManifold.separation = FLT_MAX;
+
 		for (int i = 0; i < 6; i++)
 		{
 			GBManifold test;
@@ -1095,12 +1098,70 @@ struct GBManifoldGeneration
 			}
 
 		}
+		if(!foundPen)
+		{
+
+			GBTransform inverse = testBox.transform.inverse();
+			GBVector3 upperLocal = inverse.transformPoint(upper);
+			GBVector3 lowerLocal = inverse.transformPoint(lower);
+			GBVector3 upLocal = inverse.transformDirection(up);
+			GBAABB aabb(GBVector3::zero(), testBox.halfExtents);
+			bool upperContained = aabb.containsPoint(upperLocal);
+			bool lowerContained = aabb.containsPoint(lowerLocal);
+			GBContact cLower, cHigher;
+
+			if (upperContained)
+			{
+				GBVector3 outPoint;
+				GBCardinal outFace;
+				float outDist = FLT_MAX;
+				if (aabb.forcePointToClosestFace(lowerLocal, -upLocal, outPoint, outFace, outDist))
+				{
+					GBVector3 faceDir = GBManifoldGeneration::GBCardinalToVector3(outFace);
+					cHigher = GBContact(outPoint, faceDir, outDist);
+					cHigher.applyTransformation(box.transform);
+				}
+				foundPen = true;
+			}
+
+			if (lowerContained)
+			{
+				GBVector3 outPoint;
+				GBCardinal outFace;
+				float outDist = FLT_MAX;
+				if (aabb.forcePointToClosestFace(lowerLocal, upLocal, outPoint, outFace, outDist))
+				{
+					GBVector3 faceDir = GBManifoldGeneration::GBCardinalToVector3(outFace);
+					cLower = GBContact(outPoint, faceDir, outDist);
+					cLower.applyTransformation(box.transform);
+				}
+				foundPen = true;
+			}
+			if (lowerContained && upperContained)
+			{
+				if (cLower.distance < cHigher.distance)
+				{
+					outManifold.addContact(cLower);
+				}
+				else
+				{
+					outManifold.addContact(cHigher);
+				}
+			}
+			else if (upperContained)
+				outManifold.addContact(cHigher);
+			else if (lowerContained)
+				outManifold.addContact(cLower);
+
+			isContained = outManifold.numContacts > 0;
+		}
+
 		if (foundPen)
 		{
 			if (outManifold.numContacts > 0)
 			{
 				outManifold.numContacts = 1;
-				if (GBDot(capsule.transform.position - outManifold.contacts[0].position, outManifold.contacts[0].normal) < 0)
+				if (!isContained && GBDot(capsule.transform.position - outManifold.contacts[0].position, outManifold.contacts[0].normal) < 0)
 				{
 					outManifold.contacts[0].normal *= -1.0f;
 				}

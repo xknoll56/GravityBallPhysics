@@ -701,4 +701,47 @@ struct GBAABB
 			p.z >= l.z && p.z <= h.z);
 	}
 
+
+	bool forcePointToClosestFace(
+		const GBVector3& point,
+		const GBVector3& direction,
+		GBVector3& outPoint,
+		GBCardinal& outFace,
+		float& outDistance) const
+	{
+		if (!containsPoint(point))
+			return false;
+
+		GBCardinal faces[3];
+		directionToClosestFaces(direction, faces);
+
+		float components[3] =
+		{
+			direction.x,
+			direction.y,
+			direction.z
+		};
+
+		bool found = false;
+
+		for (int i = 0; i < 3; i++)
+		{
+			// A perpendicular cardinal is not positive to the direction.
+			if (components[i] == 0.0f)
+				continue;
+
+			GBVector3 facePoint = forcePointOntoFacePlane(point, faces[i]);
+			float distance = (facePoint - point).length();
+
+			if (!found || distance < outDistance)
+			{
+				outPoint = facePoint;
+				outFace = faces[i];
+				outDistance = distance;
+				found = true;
+			}
+		}
+
+		return found;
+	}
 };
