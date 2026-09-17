@@ -1115,7 +1115,7 @@ struct GBManifoldGeneration
 				GBVector3 outPoint;
 				GBCardinal outFace;
 				float outDist = FLT_MAX;
-				if (aabb.forcePointToClosestFace(lowerLocal, -upLocal, outPoint, outFace, outDist))
+				if (aabb.forcePointToClosestFace(upperLocal, -upLocal, outPoint, outFace, outDist))
 				{
 					GBVector3 faceDir = GBManifoldGeneration::GBCardinalToVector3(outFace);
 					cHigher = GBContact(outPoint, faceDir, outDist);
