@@ -1008,6 +1008,7 @@ struct GBSimulation
 		const float staticManifoldThreshold = 0.05f;
 
 		int count = m.numContacts;
+		bool doSolveStaticManifold = false;
 
 
 		for (int i = 0; i < count; i++)
@@ -1051,18 +1052,6 @@ struct GBSimulation
 					A.wakeIsland();
 				if (B.isMovable())
 					B.wakeIsland();
-			}
-
-			if (canTreatAsStatic && (!A.isKinematic || !B.isKinematic))
-			{
-				float relSpeed = vRel.lengthSquared();
-				float upness = GBDot(GBVector3::up(), m.normal);
-				const static float stackModifier = 1.0f;
-				if (GBAbs(vn) < staticManifoldThreshold * stackModifier && upness > slopeRequirement && relSpeed < 1.0f)
-				{
-					solveStaticManifold(m, dt);
-					return;
-				}
 			}
 
 
@@ -1167,7 +1156,21 @@ struct GBSimulation
 						B.angularVelocity += GBCross(rB, fImpulse) * B.invInertia;
 				}
 			}
+
+			if (canTreatAsStatic && (!A.isKinematic || !B.isKinematic))
+			{
+				float relSpeed = vRel.lengthSquared();
+				float upness = GBDot(GBVector3::up(), m.normal);
+				const static float stackModifier = 1.0f;
+				if (GBAbs(vn) < staticManifoldThreshold * stackModifier && upness > slopeRequirement && relSpeed < 1.0f)
+				{
+					doSolveStaticManifold = true;
+				}
+			}
 		}
+		if(doSolveStaticManifold)
+			solveStaticManifold(m, dt);
+
 	}
 
 	void solveStaticSphereManifold(const GBManifold& manifold, GBBody& body, float dt)
