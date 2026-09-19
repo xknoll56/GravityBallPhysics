@@ -935,6 +935,20 @@ struct GBBody
 		return hasStaticAttachmentRecursive(visited, depth, maxDepth);
 	}
 
+	bool hasKinematicPlatformConnection() const
+	{
+		bool hasKinematicBody = false;
+		for (GBBody* b : dynamicBodies)
+		{
+			if (b->isKinematic)
+			{
+				hasKinematicBody = true;
+				break;
+			}
+		}
+		return hasKinematicBody;
+	}
+
 	void wake()
 	{
 		isSleeping = false;
