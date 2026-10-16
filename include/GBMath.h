@@ -868,4 +868,61 @@ struct GBQuaternion {
             GBAbs(z) < eps &&
             GBAbs(w - 1.0f) < eps;
     }
+
+    static GBQuaternion slerp(
+        const GBQuaternion& a,
+        const GBQuaternion& b,
+        float t)
+    {
+        GBQuaternion q1 = a.normalized();
+        GBQuaternion q2 = b.normalized();
+
+        float dot = q1.w * q2.w +
+            q1.x * q2.x +
+            q1.y * q2.y +
+            q1.z * q2.z;
+
+        // Quaternions q and -q represent the same rotation.
+        // Flip q2 so we take the shortest path.
+        if (dot < 0.0f)
+        {
+            q2.w = -q2.w;
+            q2.x = -q2.x;
+            q2.y = -q2.y;
+            q2.z = -q2.z;
+            dot = -dot;
+        }
+
+        dot = GBClamp(dot, -1.0f, 1.0f);
+
+        // Very small angle: use normalized lerp.
+        if (dot > 0.9995f)
+        {
+            GBQuaternion result(
+                GBLerp(q1.w, q2.w, t),
+                GBLerp(q1.x, q2.x, t),
+                GBLerp(q1.y, q2.y, t),
+                GBLerp(q1.z, q2.z, t)
+            );
+
+            result.normalize();
+            return result;
+        }
+
+        float theta = acosf(dot);
+        float sinTheta = sinf(theta);
+
+        float weightA = sinf((1.0f - t) * theta) / sinTheta;
+        float weightB = sinf(t * theta) / sinTheta;
+
+        GBQuaternion result(
+            q1.w * weightA + q2.w * weightB,
+            q1.x * weightA + q2.x * weightB,
+            q1.y * weightA + q2.y * weightB,
+            q1.z * weightA + q2.z * weightB
+        );
+
+        result.normalize();
+        return result;
+    }
 };

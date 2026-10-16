@@ -74,6 +74,7 @@ struct GBPath
 	std::vector<GBVector3> points;
 	int currentTargetIndex = 0;
 
+
 	GBVector3 getTarget(GBVector3 position, float stopingDistance = 0.1f, bool loop = true, bool forwards = true)
 	{
 		int numPoints = points.size();
@@ -176,6 +177,21 @@ struct GBController
 			pBody = nullptr;
 			complete = false;
 		}
+	}
+
+
+	float getTargetDistance()
+	{
+		GBVector3 prevTarget = path.points[prevTargetIndex];
+		return (target - prevTarget).length();
+	}
+
+	float getCurProgress()
+	{
+		GBVector3 prevTarget = path.points[prevTargetIndex];
+		float dist = getTargetDistance();
+		float bodyDist = (pBody->transform.position - prevTarget).length();
+		return bodyDist / dist;
 	}
 
 	bool isPathFinished() const
@@ -584,6 +600,33 @@ struct GBSimulation
 			}
 			break;
 
+		}
+		return nullptr;
+	}
+
+	GBCollider* getFirstColliderWithKey(int key)
+	{
+		for (auto& sphereIt : sphereColliders)
+		{
+			if (sphereIt->id == key)
+			{
+				return static_cast<GBCollider*>(sphereIt.get());
+			}
+		}
+		for (auto& capsuleIt : capsuleColliders)
+		{
+			if (capsuleIt->id == key)
+			{
+				return static_cast<GBCollider*>(capsuleIt.get());
+			}
+		}
+
+		for (auto& boxIt : boxColliders)
+		{
+			if (boxIt->id == key)
+			{
+				return static_cast<GBCollider*>(boxIt.get());
+			}
 		}
 		return nullptr;
 	}
@@ -2411,12 +2454,12 @@ struct GBSimulation
 
 						float dist = dp.length();
 
-						float weight = 0.95f;
+						float weight = 0.65f;
 						bool bodyIsSphere = bodyIsPureColliderType(*pBody, ColliderType::Sphere);
 
 						if (bodyIsSphere)
 						{
-							pBody->transform.position += dp;
+							pBody->transform.position += dp * (1.0f-GBEpsilon);
 						}
 						else
 						{
