@@ -2695,22 +2695,26 @@ struct GBSimulation
 	// Wrapper to call recursion
 	void solveDynamicPenetration(GBManifold& manifold)
 	{
-		const float percent = 1.0f - (1.0f / solverIterations);
+		//const float percent = 1.0f - (1.0f / solverIterations);
+		const float percent = 0.2f;
 		float penetration = manifold.separation - slop;
 		float adjustedSeparation =
 			GBMin(GBMax(penetration, 0.0f), maxPenetration);
 
-		GBVector3 upNormal = GBDot(GBVector3::up(), manifold.normal) * manifold.normal;
+		GBVector3 upNormal = GBDot(GBVector3::up(), manifold.normal) * GBVector3::up();
 		GBVector3 horizontalNormal = manifold.normal - upNormal;
 
+		bool dynamicCollision = manifold.pReference && manifold.pReference->isAwake();
 		if (manifold.pIncident->isMovable())
 		{
-
+			float adjustedPercent = 1.0f;
+			if (dynamicCollision)
+				adjustedPercent = percent;
 			manifold.pIncident->transform.position +=
 				upNormal * adjustedSeparation * percent;
 		}
 
-		if (manifold.pReference && manifold.pReference->isAwake())
+		if (dynamicCollision)
 		{
 
 			manifold.pIncident->transform.position +=
@@ -2722,7 +2726,7 @@ struct GBSimulation
 		else
 		{
 			manifold.pIncident->transform.position +=
-				horizontalNormal * adjustedSeparation * percent;
+				horizontalNormal * adjustedSeparation;
 		}
 	}
 
