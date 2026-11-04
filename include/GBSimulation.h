@@ -2714,7 +2714,7 @@ struct GBSimulation
 		}
 		else
 		{
-			if (dynamicCollision && !manifold.pReference->usesController)
+			if (dynamicCollision && !manifold.pReference->usesController && !manifold.pReference->isKinematic)
 			{
 
 				manifold.pIncident->transform.position +=
