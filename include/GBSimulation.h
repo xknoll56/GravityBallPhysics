@@ -2701,32 +2701,21 @@ struct GBSimulation
 		float adjustedSeparation =
 			GBMin(GBMax(penetration, 0.0f), maxPenetration);
 
-		GBVector3 upNormal = GBDot(GBVector3::up(), manifold.normal) * GBVector3::up();
-		GBVector3 horizontalNormal = manifold.normal - upNormal;
 
 		bool dynamicCollision = manifold.pReference && manifold.pReference->isAwake();
-		if (manifold.pIncident->isMovable())
-		{
-			float adjustedPercent = 1.0f;
-			if (dynamicCollision)
-				adjustedPercent = percent;
-			manifold.pIncident->transform.position +=
-				upNormal * adjustedSeparation * percent;
-		}
-
 		if (dynamicCollision)
 		{
 
 			manifold.pIncident->transform.position +=
-				horizontalNormal * adjustedSeparation * percent * 0.5f;
+				manifold.normal * adjustedSeparation * percent * 0.5f;
 
 			manifold.pReference->transform.position -=
-				horizontalNormal * adjustedSeparation * percent * 0.5f;
+				manifold.normal * adjustedSeparation * percent * 0.5f;
 		}
-		else
+		else if(manifold.pIncident->isMovable())
 		{
 			manifold.pIncident->transform.position +=
-				horizontalNormal * adjustedSeparation;
+				manifold.normal * adjustedSeparation;
 		}
 	}
 
