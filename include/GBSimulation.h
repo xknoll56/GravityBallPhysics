@@ -2696,26 +2696,38 @@ struct GBSimulation
 	void solveDynamicPenetration(GBManifold& manifold)
 	{
 		//const float percent = 1.0f - (1.0f / solverIterations);
-		const float percent = 0.2f;
+		float percent = 0.2f;
 		float penetration = manifold.separation - slop;
 		float adjustedSeparation =
 			GBMin(GBMax(penetration, 0.0f), maxPenetration);
 
 
 		bool dynamicCollision = manifold.pReference && manifold.pReference->isAwake();
-		if (dynamicCollision)
+
+		if (manifold.pIncident->usesController)
 		{
-
-			manifold.pIncident->transform.position +=
-				manifold.normal * adjustedSeparation * percent * 0.5f;
-
-			manifold.pReference->transform.position -=
-				manifold.normal * adjustedSeparation * percent * 0.5f;
+			if (dynamicCollision)
+			{
+				manifold.pReference->transform.position -=
+					manifold.normal * adjustedSeparation;
+			}
 		}
-		else if(manifold.pIncident->isMovable())
+		else
 		{
-			manifold.pIncident->transform.position +=
-				manifold.normal * adjustedSeparation;
+			if (dynamicCollision && !manifold.pReference->usesController)
+			{
+
+				manifold.pIncident->transform.position +=
+					manifold.normal * adjustedSeparation * percent * 0.5f;
+
+				manifold.pReference->transform.position -=
+					manifold.normal * adjustedSeparation * percent * 0.5f;
+			}
+			else if (manifold.pIncident->isMovable())
+			{
+				manifold.pIncident->transform.position +=
+					manifold.normal * adjustedSeparation;
+			}
 		}
 	}
 
