@@ -2449,6 +2449,7 @@ struct GBSimulation
 					GBVector3 dp = body->transform.position - body->prevPosition;
 					for (GBBody* pBody : body->dynamicBodies)
 					{
+						body->wake();
 						if (pBody->isStatic || pBody->usesController)
 							continue;
 
