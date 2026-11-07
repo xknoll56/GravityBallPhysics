@@ -2485,7 +2485,7 @@ struct GBSimulation
 								GBCross(r, -relativeTangentialVel) / (r.lengthSquared());
 
 							// blend instead of snap
-							float blend = 20.0f * interDeltaTime;
+							float blend = 5.0f * interDeltaTime;
 							blend = GBMin(blend, 1.0f);
 
 							pBody->angularVelocity =
