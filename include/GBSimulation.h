@@ -458,6 +458,24 @@ struct GBSimulation
 		exitListeners[pBody->id].push_back(std::move(fn));
 	}
 
+	using GBContactListener = void(*)(const GBManifold&, GBBody*);
+
+	template<typename Callable>
+	std::function<void(const GBManifold&, GBBody*)> makeListener(Callable&& fn)
+	{
+		return std::function<void(const GBManifold&, GBBody*)>(
+			std::forward<Callable>(fn)
+		);
+	}
+
+	// Usage example:
+	// 
+	//auto enter = pSim->makeListener(
+	//	[this](const GBManifold& manifold, GBBody* pOther)
+	//	{
+	//		OnEnter(manifold, pOther);
+	//	}
+	//);
 
 
 	uint32_t getId()
