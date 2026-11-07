@@ -742,7 +742,7 @@ struct GBSimulation
 		return result;
 	}
 
-	GBSphereCollider* attachSphereCollider(GBBody* pBody, float radius, GBTransform localTransform = GBTransform(), bool insertToGrid = true)
+	GBSphereCollider* attachSphereCollider(GBBody* pBody, float radius, GBTransform localTransform = GBTransform(), bool insertToGrid = true, bool doRecenterMass = true)
 	{
 		sphereColliders.push_back(std::make_unique<GBSphereCollider>());
 		GBSphereCollider* col = sphereColliders.back().get();
@@ -756,7 +756,8 @@ struct GBSimulation
 		pBody->updateColliders();
 		if (insertToGrid)
 			gridMap.insertBody(*pBody);
-		recenterMass(pBody);
+		if(doRecenterMass)
+			recenterMass(pBody);
 		pBody->setInertia(pBody->aabb.halfExtents);
 		return col;
 	}
@@ -909,7 +910,7 @@ struct GBSimulation
 		return body;
 	}
 
-	GBBoxCollider* attachBoxCollider(GBBody* pBody, GBVector3 halfExtents, GBTransform localTransform = GBTransform(), bool insertToGrid = true)
+	GBBoxCollider* attachBoxCollider(GBBody* pBody, GBVector3 halfExtents, GBTransform localTransform = GBTransform(), bool insertToGrid = true, bool doRecenterMass = true)
 	{
 		boxColliders.push_back(std::make_unique<GBBoxCollider>());
 		GBBoxCollider* col = boxColliders.back().get();
@@ -923,12 +924,13 @@ struct GBSimulation
 		pBody->updateColliders();
 		if (insertToGrid)
 			gridMap.insertBody(*pBody);
-		recenterMass(pBody);
+		if (doRecenterMass)
+			recenterMass(pBody);
 		pBody->setInertia(pBody->aabb.halfExtents);
 		return col;
 	}
 
-	GBCapsuleCollider* attachCapsuleCollider(GBBody* pBody, float radius, float height, GBTransform localTransform = GBTransform(), bool insertToGrid = true)
+	GBCapsuleCollider* attachCapsuleCollider(GBBody* pBody, float radius, float height, GBTransform localTransform = GBTransform(), bool insertToGrid = true, bool doRecenterMass = true)
 	{
 		// For simplicity, we can treat the capsule as a box for now
 		//boxColliders.push_back(std::make_unique<GBBoxCollider>());
@@ -945,7 +947,8 @@ struct GBSimulation
 		pBody->updateColliders();
 		if (insertToGrid)
 			gridMap.insertBody(*pBody);
-		recenterMass(pBody);
+		if (doRecenterMass)
+			recenterMass(pBody);
 		pBody->setInertia(pBody->aabb.halfExtents);
 		return col;
 	}
