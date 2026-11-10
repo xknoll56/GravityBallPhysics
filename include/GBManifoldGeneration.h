@@ -1068,113 +1068,165 @@ struct GBManifoldGeneration
 		return outManifold.numContacts > 0;
 	}
 
+
 	static bool GBManifoldCapsuleBox(
 		const GBCapsuleCollider& capsule,
-		 GBBoxCollider& box,
+		GBBoxCollider& box,
 		GBManifold& outManifold)
 	{
-		GBBoxCollider testBox(box.halfExtents + GBVector3{capsule.radius, capsule.radius, capsule.radius});
+		GBBoxCollider testBox(
+			box.halfExtents +
+			GBVector3{
+				capsule.radius,
+				capsule.radius,
+				capsule.radius
+			});
+
 		testBox.setTransform(box.transform);
 		testBox.setVerts();
-		GBContact hit;
+
 		GBVector3 upper, lower, up;
 		capsule.extractSphereLocations(upper, lower, &up);
 
 		bool foundPen = false;
 		bool isContained = false;
+
 		outManifold.separation = FLT_MAX;
 
+		// Normal capsule-box collision detection.
 		for (int i = 0; i < 6; i++)
 		{
 			GBManifold test;
 			GBQuad face = GBBoxCardinalToQuad(box, (GBCardinal)i);
+
 			if (GBManifoldCapsuleQuad(capsule, face, test, true))
 			{
-				//if (test.separation < outManifold.separation)
-				{
-					outManifold.combine(test);
-				}
+				outManifold.combine(test);
 				foundPen = true;
 			}
-
 		}
-		if(!foundPen)
-		{
 
-			GBTransform inverse = testBox.transform.inverse();
+		// Containment fallback.
+		if (!foundPen)
+		{
+			GBTransform inverse = box.transform.inverse();
+
 			GBVector3 upperLocal = inverse.transformPoint(upper);
 			GBVector3 lowerLocal = inverse.transformPoint(lower);
 			GBVector3 upLocal = inverse.transformDirection(up);
-			GBAABB aabb(GBVector3::zero(), testBox.halfExtents);
+
+			GBAABB aabb(GBVector3::zero(), box.halfExtents);
+
 			bool upperContained = aabb.containsPoint(upperLocal);
 			bool lowerContained = aabb.containsPoint(lowerLocal);
-			GBContact cLower, cHigher;
 
-			if (upperContained)
+			if (upperContained || lowerContained)
 			{
-				GBVector3 outPoint;
-				GBCardinal outFace;
-				float outDist = FLT_MAX;
-				if (aabb.forcePointToClosestFace(upperLocal, -upLocal, outPoint, outFace, outDist))
-				{
-					GBVector3 faceDir = GBManifoldGeneration::GBCardinalToVector3(outFace);
-					cHigher = GBContact(outPoint, faceDir, outDist);
-					cHigher.applyTransformation(box.transform);
-				}
-				foundPen = true;
-			}
+				GBContact cUpper;
+				GBContact cLower;
 
-			if (lowerContained)
-			{
-				GBVector3 outPoint;
-				GBCardinal outFace;
-				float outDist = FLT_MAX;
-				if (aabb.forcePointToClosestFace(lowerLocal, upLocal, outPoint, outFace, outDist))
+				bool validUpper = false;
+				bool validLower = false;
+
+				// Find escape direction for upper endpoint.
+				if (upperContained)
 				{
-					GBVector3 faceDir = GBManifoldGeneration::GBCardinalToVector3(outFace);
-					cLower = GBContact(outPoint, faceDir, outDist);
-					cLower.applyTransformation(box.transform);
+					GBVector3 outPoint;
+					GBCardinal outFace;
+					float outDist = FLT_MAX;
+
+					if (aabb.forcePointToClosestFace(
+						upperLocal,
+						-upLocal,
+						outPoint,
+						outFace,
+						outDist))
+					{
+						GBVector3 faceDir =
+							GBManifoldGeneration::GBCardinalToVector3(outFace);
+
+						cUpper = GBContact(outPoint, faceDir, outDist + capsule.radius);
+						cUpper.applyTransformation(box.transform);
+
+						validUpper = true;
+					}
 				}
-				foundPen = true;
-			}
-			if (lowerContained && upperContained)
-			{
-				if (cLower.distance < cHigher.distance)
+
+				// Find escape direction for lower endpoint.
+				if (lowerContained)
+				{
+					GBVector3 outPoint;
+					GBCardinal outFace;
+					float outDist = FLT_MAX;
+
+					if (aabb.forcePointToClosestFace(
+						lowerLocal,
+						upLocal,
+						outPoint,
+						outFace,
+						outDist))
+					{
+						GBVector3 faceDir =
+							GBManifoldGeneration::GBCardinalToVector3(outFace);
+
+						cLower = GBContact(outPoint, faceDir, outDist + capsule.radius);
+						cLower.applyTransformation(box.transform);
+
+						validLower = true;
+					}
+				}
+
+				// Select the shortest escape direction.
+				if (validUpper && validLower)
+				{
+					outManifold.addContact(
+						cUpper.distance < cLower.distance ? cUpper : cLower);
+				}
+				else if (validUpper)
+				{
+					outManifold.addContact(cUpper);
+				}
+				else if (validLower)
 				{
 					outManifold.addContact(cLower);
 				}
-				else
-				{
-					outManifold.addContact(cHigher);
-				}
-			}
-			else if (upperContained)
-				outManifold.addContact(cHigher);
-			else if (lowerContained)
-				outManifold.addContact(cLower);
 
-			isContained = outManifold.numContacts > 0;
+				isContained = outManifold.numContacts > 0;
+				foundPen = isContained;
+			}
 		}
 
-		if (foundPen)
+		if (foundPen && outManifold.numContacts > 0)
 		{
-			if (outManifold.numContacts > 0)
+			outManifold.numContacts = 1;
+
+			if (!isContained &&
+				GBDot(
+					capsule.transform.position -
+					outManifold.contacts[0].position,
+					outManifold.contacts[0].normal) < 0)
 			{
-				outManifold.numContacts = 1;
-				if (!isContained && GBDot(capsule.transform.position - outManifold.contacts[0].position, outManifold.contacts[0].normal) < 0)
-				{
-					outManifold.contacts[0].normal *= -1.0f;
-				}
-				outManifold.useNormal(outManifold.contacts[0]);
-				outManifold.separation = GBAbs(outManifold.contacts[0].distance);
-				outManifold.pReference = box.pBody;
-				outManifold.pIncident = capsule.pBody;
-				outManifold.setContactColliders((GBCollider*)&capsule, (GBCollider*)&box);
-				return true;
+				outManifold.contacts[0].normal *= -1.0f;
 			}
+
+			outManifold.useNormal(outManifold.contacts[0]);
+
+			outManifold.separation =
+				GBAbs(outManifold.contacts[0].distance);
+
+			outManifold.pReference = box.pBody;
+			outManifold.pIncident = capsule.pBody;
+
+			outManifold.setContactColliders(
+				(GBCollider*)&capsule,
+				(GBCollider*)&box);
+
+			return true;
 		}
+
 		return false;
 	}
+
 
 	static bool GBManifoldCapsuleSphere(
 		const GBCapsuleCollider& capsule,
