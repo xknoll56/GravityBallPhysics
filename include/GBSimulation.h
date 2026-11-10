@@ -2733,6 +2733,11 @@ struct GBSimulation
 				manifold.pReference->transform.position -=
 					manifold.normal * adjustedSeparation;
 			}
+			else if (manifold.pReference->isStatic)
+			{
+				manifold.pIncident->transform.position +=
+					manifold.normal * adjustedSeparation;
+			}
 		}
 		else
 		{
