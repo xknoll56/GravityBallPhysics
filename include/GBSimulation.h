@@ -2718,7 +2718,9 @@ struct GBSimulation
 	void solveDynamicPenetration(GBManifold& manifold)
 	{
 		//const float percent = 1.0f - (1.0f / solverIterations);
-		float percent = 0.2f;
+		//float percent = 0.2f;
+		float upness = GBAbs(GBDot(manifold.normal, GBVector3::up()));
+		float percent = 1.0f - upness * 0.8f;
 		float penetration = manifold.separation - slop;
 		float adjustedSeparation =
 			GBMin(GBMax(penetration, 0.0f), maxPenetration);
